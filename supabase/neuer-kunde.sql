@@ -16,7 +16,7 @@ begin
   from (values
     ('kunde@beispiel.de',          'kunde',   'Robin (Hühnerhof)'),
     ('du@deine-agentur.de',        'agentur', 'Michele'),
-    ('automatik@deine-domain.de',  'agentur', 'Claude (Automatik)')
+    ('automatik@deine-domain.de',  'agentur', 'Michele (Automatik)')
   ) as x(email, rolle, name)
   join auth.users u on lower(u.email) = lower(x.email)
   on conflict (projekt_id, user_id) do update set rolle = excluded.rolle, anzeigename = excluded.anzeigename;

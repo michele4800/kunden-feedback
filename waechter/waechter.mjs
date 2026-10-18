@@ -16,7 +16,7 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const HIER = path.dirname(fileURLToPath(import.meta.url));
-const NAME = "Claude (Automatik)";
+// So erscheint die Automatik bei Kunden (Bearbeiter); muss zum Anzeigenamen in „mitglieder“ passen
 
 // ---------- Einstellungen ----------
 function env() {
@@ -28,6 +28,8 @@ function env() {
   return e;
 }
 const ENV = env();
+// So erscheint die Automatik bei Kunden (Bearbeiter); muss zum Anzeigenamen in „mitglieder“ passen
+const NAME = ENV.KF_NAME || "Michele (Automatik)";
 const KONF = JSON.parse(readFileSync(path.join(HIER, "projekte.json"), "utf8"));
 const INTERVALL = (KONF.intervall_sekunden || 60) * 1000;
 const MAX_PRO_TAG = KONF.max_pro_tag || 20;

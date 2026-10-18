@@ -35,7 +35,7 @@ create table if not exists public.wuensche (
   stelle       jsonb,              -- markierte Stelle: {selektor, text, x, y}
   text         text not null check (length(btrim(text)) between 1 and 5000),
   status       text not null default 'offen' check (status in ('offen', 'in_arbeit', 'rueckfrage', 'zur_freigabe', 'erledigt', 'abgelehnt')),
-  bearbeiter   text not null default '' check (length(bearbeiter) <= 120),   -- z. B. „Claude (Automatik)“ oder „Agentur“
+  bearbeiter   text not null default '' check (length(bearbeiter) <= 120),   -- z. B. „Michele (Automatik)“ oder „Agentur“
   fortschritt  text not null default '' check (length(fortschritt) <= 500),  -- kurzer Stand für den Kunden
   fertig_bis   timestamptz,                                                   -- voraussichtliche Fertigstellung
   freigegeben  boolean not null default false,                                -- Agentur hat die Umsetzung zur Veröffentlichung freigegeben

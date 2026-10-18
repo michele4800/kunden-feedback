@@ -40,7 +40,7 @@ await db.exec(`
     ('${ID.projA}','${ID.kundeA}','kunde','Kunde A'),('${ID.projA}','${ID.kundeA2}','kunde','Kunde A2'),
     ('${ID.projB}','${ID.kundeB}','kunde','Kunde B'),
     ('${ID.projA}','${ID.agentur}','agentur','Agentur'),('${ID.projB}','${ID.agentur}','agentur','Agentur'),
-    ('${ID.projA}','${ID.claude}','agentur','Claude (Automatik)');
+    ('${ID.projA}','${ID.claude}','agentur','Michele (Automatik)');
 `);
 
 // Als bestimmter Benutzer ausführen (wie ein Browser mit gültiger Anmeldung)
@@ -97,7 +97,7 @@ await test("Anderer Kunde im selben Projekt kann fremden Wunsch nicht ändern", 
 });
 
 await test("Automatik/Agentur setzt In Arbeit mit Fertigstellung; danach ist der Wunsch für den Kunden gesperrt", async () => {
-  const r = await als("claude", `update wuensche set status='in_arbeit', bearbeiter='Claude (Automatik)', fortschritt='Wird umgesetzt',
+  const r = await als("claude", `update wuensche set status='in_arbeit', bearbeiter='Michele (Automatik)', fortschritt='Wird umgesetzt',
     fertig_bis = now() + interval '20 minutes' where id = $1 returning status, bearbeiter`, [wunschA.id]);
   assert.equal(r.rows[0].status, "in_arbeit");
   await fehlt("kundeA", "update wuensche set text = 'doch anders' where id = $1", [wunschA.id], /Bearbeitung/);
