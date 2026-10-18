@@ -39,7 +39,7 @@
 .kf button,.kf input,.kf textarea{font:inherit}
 .kf-zu{background:none;border:0;font-size:24px;line-height:1;cursor:pointer;padding:4px 8px;color:inherit}
 .kf label{display:block;font-weight:600;margin:12px 0 6px}
-.kf input[type=email],.kf input[type=password],.kf textarea{width:100%;box-sizing:border-box;border:1px solid #8a877f;border-radius:8px;padding:10px 12px;background:#fff;color:#1b1b19}
+.kf input[type=text],.kf input[type=email],.kf input[type=password],.kf textarea{width:100%;box-sizing:border-box;border:1px solid #8a877f;border-radius:8px;padding:10px 12px;background:#fff;color:#1b1b19}
 .kf textarea{min-height:92px;resize:vertical}
 .kf-btn{border:2px solid #1b1b19;background:#1b1b19;color:#fff;border-radius:999px;padding:9px 16px;font-weight:600;cursor:pointer}
 .kf-btn.hell{background:#fff;color:#1b1b19}
@@ -132,9 +132,9 @@
 
     function anmeldung(meldung = "") {
       dlg.innerHTML = rahmen("Anmelden", "Mit den Zugangsdaten, die ihr von uns bekommen habt", `
-        ${be.istDemo ? `<p class="kf-demo">Demo-Modus: Beliebige E-Mail und Passwort eingeben. Mit „agentur“ in der E-Mail meldest du dich als Agentur an.</p>` : ""}
+        ${be.istDemo ? `<p class="kf-demo">Demo-Modus: Beliebigen Namen und Passwort eingeben. Mit „agentur“ im Namen meldest du dich als Agentur an.</p>` : ""}
         <form data-form="login">
-          <label for="kf-email">E-Mail</label><input id="kf-email" type="email" autocomplete="username" required>
+          <label for="kf-email">Benutzername oder E-Mail</label><input id="kf-email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
           <label for="kf-pw">Passwort</label><input id="kf-pw" type="password" autocomplete="current-password" required>
           <div class="kf-zeile"><button class="kf-btn" type="submit">Anmelden</button>
             <button type="button" class="kf-btn hell" data-aktion="vergessen">Passwort vergessen?</button></div>
@@ -172,7 +172,7 @@
       if (a === "abmelden") { if (stopp) { stopp(); stopp = null; } projekt = null; await be.abmelden(); anmeldung(); zaehlen(); }
       if (a === "vergessen") {
         const email = dlg.querySelector("#kf-email").value.trim(), f = dlg.querySelector(".kf-fehler");
-        if (!email) { f.textContent = "Bitte zuerst die E-Mail-Adresse eintragen."; return; }
+        if (!email) { f.textContent = "Bitte zuerst Benutzername oder E-Mail eintragen."; return; }
         try { await be.passwortVergessen(email, PORTAL + "?passwort=neu"); f.textContent = "Wenn die Adresse bei uns hinterlegt ist, kommt gleich eine E-Mail zum Zurücksetzen."; }
         catch (err) { f.textContent = err.message; }
       }

@@ -16,8 +16,8 @@
   function anmeldung(meldung = "") {
     kopfRechts.innerHTML = ""; titel.textContent = "Wünsche & Änderungen";
     inhalt.innerHTML = `<div class="karte anmelden"><h2 style="margin-top:0">Anmelden</h2>
-      ${be.istDemo ? `<p class="demo">Demo-Modus: beliebige E-Mail und Passwort. Mit „agentur“ in der E-Mail meldest du dich als Agentur an.</p>` : ""}
-      <form id="login"><label for="email">E-Mail</label><input id="email" type="email" autocomplete="username" required>
+      ${be.istDemo ? `<p class="demo">Demo-Modus: beliebiger Name und Passwort. Mit „agentur“ im Namen meldest du dich als Agentur an.</p>` : ""}
+      <form id="login"><label for="email">Benutzername oder E-Mail</label><input id="email" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" required>
         <label for="pw">Passwort</label><input id="pw" type="password" autocomplete="current-password" required>
         <div class="zeile"><button class="btn">Anmelden</button><button type="button" class="btn hell" id="vergessen">Passwort vergessen?</button></div>
         <p class="fehler" role="alert">${esc(meldung)}</p></form></div>`;
@@ -29,7 +29,7 @@
     });
     document.getElementById("vergessen").addEventListener("click", async () => {
       const email = f.email.value.trim(), m = f.querySelector(".fehler");
-      if (!email) { m.textContent = "Bitte zuerst die E-Mail-Adresse eintragen."; return; }
+      if (!email) { m.textContent = "Bitte zuerst Benutzername oder E-Mail eintragen."; return; }
       try { await be.passwortVergessen(email, location.origin + location.pathname + "?passwort=neu"); m.textContent = "Wenn die Adresse bei uns hinterlegt ist, kommt gleich eine E-Mail zum Zurücksetzen."; }
       catch (err) { m.textContent = err.message; }
     });

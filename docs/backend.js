@@ -9,15 +9,22 @@
   KF.STATUS = STATUS;
 
   // ---------- Supabase ----------
+  // „robin“ → „robin@kunden.example.com“; E-Mail-Adressen bleiben unverändert
+  const zuEmail = (eingabe, k) => { const e = String(eingabe || "").trim().toLowerCase(); return e.includes("@") ? e : `${e}@${(k && k.benutzer_domain) || "kunden.example.com"}`; };
+  KF.zuEmail = zuEmail;
+
   function supabaseBackend(k) {
     const sb = window.supabase.createClient(k.url, k.schluessel, { auth: { persistSession: true, storageKey: "kf-sitzung" } });
     const ok = ({ data, error }) => { if (error) throw new Error(übersetzen(error.message)); return data; };
     return {
       istDemo: false,
       async sitzung() { const { data } = await sb.auth.getSession(); return data.session ? { user: data.session.user } : null; },
-      async anmelden(email, passwort) { ok(await sb.auth.signInWithPassword({ email, password: passwort })); },
+      async anmelden(name, passwort) { ok(await sb.auth.signInWithPassword({ email: zuEmail(name, k), password: passwort })); },
       async abmelden() { await sb.auth.signOut(); },
-      async passwortVergessen(email, zurueck) { ok(await sb.auth.resetPasswordForEmail(email, { redirectTo: zurueck })); },
+      async passwortVergessen(name, zurueck) {
+        if (!String(name).includes("@")) throw new Error("Für Zugänge mit Benutzernamen setzen wir das Passwort zurück – meldet euch einfach bei uns.");
+        ok(await sb.auth.resetPasswordForEmail(name.trim(), { redirectTo: zurueck }));
+      },
       async passwortSetzen(passwort) { ok(await sb.auth.updateUser({ password: passwort })); },
       beiAnmeldung(fn) { return sb.auth.onAuthStateChange((ereignis) => fn(ereignis)).data.subscription.unsubscribe; },
       async projekte() { return ok(await sb.from("projekte").select("*").order("name")); },
@@ -45,7 +52,7 @@
   }
 
   function übersetzen(m) {
-    if (/Invalid login credentials/i.test(m)) return "E-Mail oder Passwort stimmt nicht.";
+    if (/Invalid login credentials/i.test(m)) return "Benutzername bzw. E-Mail oder Passwort stimmt nicht.";
     if (/Email not confirmed/i.test(m)) return "Die E-Mail-Adresse ist noch nicht bestätigt.";
     if (/row-level security|permission denied/i.test(m)) return "Dafür fehlt die Berechtigung.";
     if (/Failed to fetch|NetworkError/i.test(m)) return "Keine Verbindung zum Server. Bitte später erneut versuchen.";

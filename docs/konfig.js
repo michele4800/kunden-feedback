@@ -5,4 +5,8 @@
 window.KF_KONFIG = {
   url: "",
   schluessel: "",
+  // Kunden können sich statt mit E-Mail mit einem Benutzernamen anmelden: „robin“ wird zu „robin@<benutzer_domain>“.
+  // In Supabase den Benutzer daher mit genau dieser Adresse anlegen (z. B. robin@kunden.example.com).
+  // example.com ist reserviert und empfängt nie E-Mails – „Passwort vergessen“ geht für diese Zugänge nicht, das Passwort setzt die Agentur zurück.
+  benutzer_domain: "kunden.example.com",
 };
