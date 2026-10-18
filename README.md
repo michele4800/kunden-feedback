@@ -41,6 +41,10 @@ Im Widget wählt der Kunde zuerst, **was** er möchte – danach zeigt es die pa
 Der Wächter lädt angehängte Fotos in den Ordner `eingang/` des Projekts, Claude sieht sie sich an und wählt,
 welche auf die Website kommen. Die Automatik legt sie als WebP ab (Größen aus `bilder` in `projekte.json`), danach wird `eingang/` gelöscht.
 
+**Augen der Automatik:** Ist in `projekte.json` eine `vorschau_url` eingetragen, fotografiert der Wächter die betroffene Seite
+(markierte Stelle, Desktop 1440 px und Handy 390 px) vor der Änderung und danach. Claude vergleicht beide Fotos und bessert bis zu
+zweimal nach. Dafür wird das installierte Google Chrome genutzt (anderer Pfad: `"chrome"` in `projekte.json`).
+
 Mit `?kf-demo` in der Adresse läuft Widget oder Portal auch bei eingetragenem Server im Demo-Modus (zum Vorführen).
 
 ## Einmalige Einrichtung (ca. 15 Minuten)

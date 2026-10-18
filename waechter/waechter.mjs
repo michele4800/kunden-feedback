@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { claude as claudeRoh, SYSTEM, SCHEMA_SCHAETZUNG, SCHEMA_ERGEBNIS, wunschText } from "./claude.mjs";
 import { bildHinweis, fotosAblegen } from "./fotos.mjs";
+import { ansichten, seitePfad } from "./ansicht.mjs";
 import { readFileSync, existsSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -126,15 +127,45 @@ Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${
   if (p.veroeffentlichen) git(p.ordner, "pull", "-q", "--ff-only");
   if (zweig !== p.zweig) git(p.ordner, "checkout", "-q", "-B", zweig);
   const werkzeuge = ["Read", "Edit", "Write", "Glob", "Grep", ...(p.bauen ? [`Bash(${p.bauen.join(" ")})`] : [])];
+
+  // „Augen“: Bildschirmfotos der betroffenen Seite vor der Änderung
+  const seite = seitePfad(p, w.seite_url);
+  const knipsen = async praefix => {
+    if (!seite || !existsSync(path.join(p.ordner, seite))) return [];
+    try { return await ansichten(p, { seite, selektor: (w.stelle || {}).selektor, ziel: `${EINGANG}/ansicht`, praefix }); }
+    catch (e) { log(`[${p.slug}] ${kurz} Bildschirmfoto fehlgeschlagen: ${e.message}`); return []; }
+  };
+  const vorher = await knipsen("vorher");
+  const fotoText = (liste, wann) => liste.length ? `\nBildschirmfotos ${wann} (Desktop und Handy; die rot gestrichelte Linie zeigt nur die vom Kunden markierte Stelle und ist nicht Teil der Seite) – sieh sie dir mit Read an:\n${liste.map(f => `- ${f}`).join("\n")}` : "";
+
   let r;
   try {
-    r = await claude(`Setze diesen Wunsch in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""}${fotos.length ? `\n${bildHinweis(p)}` : ""}\n\n${wunschText(w, verlauf, namen, fotos)}`,
+    r = await claude(`Setze diesen Wunsch in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""}${fotos.length ? `\n${bildHinweis(p)}` : ""}${fotoText(vorher, "der Seite vor deiner Änderung, so sieht der Kunde sie jetzt")}\n\n${wunschText(w, verlauf, namen, fotos)}`,
       { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: KONF.max_budget_usd || 3, systemzusatz: SYSTEM });
   } catch (e) { r = { ergebnis: "fehler", zusammenfassung: e.message, frage: "" }; }
 
-  // Gewählte Fotos ins Projekt übernehmen, danach den Eingang leeren
+  // Gewählte Fotos ins Projekt übernehmen
   if (r.ergebnis === "erledigt" && (r.fotos || []).length) {
     try { await fotosAblegen(p, r.fotos, fotos); } catch (e) { r = { ergebnis: "fehler", zusammenfassung: "Foto konnte nicht übernommen werden: " + e.message, frage: "" }; }
+  }
+
+  // Prüfrunden: Ergebnis fotografieren, Claude vergleicht mit vorher und bessert nach (höchstens zwei Runden)
+  for (let runde = 1; r.ergebnis === "erledigt" && vorher.length && runde <= 2; runde++) {
+    try { bauen(p); } catch (e) { break; }
+    const nachher = await knipsen(`nachher${runde}`);
+    if (!nachher.length) break;
+    await aendern(w.id, { fortschritt: "Prüft das Ergebnis auf Desktop und Handy" });
+    const stand = git(p.ordner, "status", "--porcelain") + git(p.ordner, "diff");
+    try {
+      const pr = await claude(`Du hast diesen Wunsch umgesetzt. Prüfe jetzt mit eigenen Augen, ob er erfüllt ist.${fotoText(vorher, "vorher")}${fotoText(nachher, "nach deiner Änderung")}
+Vergleiche vorher und nachher genau, so wie der Kunde hinsieht (Ausrichtung, Abstände, Lesbarkeit, Desktop UND Handy).
+Ist der Wunsch sichtbar erfüllt und nichts anderes kaputt? Wenn nicht: korrigiere den Code${p.bauen ? ` und führe den Bau aus: ${p.bauen.join(" ")}` : ""}.
+Beschreibe in zusammenfassung nur, was auf den Fotos wirklich zu sehen ist. fotos bleibt leer.\n\n${wunschText(w, verlauf, namen, fotos)}`,
+        { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: KONF.max_budget_usd || 3, systemzusatz: SYSTEM });
+      r = { ...pr, fotos: [] };
+    } catch (e) { log(`[${p.slug}] ${kurz} Prüfrunde ${runde} fehlgeschlagen: ${e.message}`); break; }
+    log(`[${p.slug}] ${kurz} Prüfrunde ${runde}: ${r.ergebnis}`);
+    if (git(p.ordner, "status", "--porcelain") + git(p.ordner, "diff") === stand) break;  // nichts nachgebessert → fertig
   }
   rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
 

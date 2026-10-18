@@ -25,7 +25,8 @@
         "ordner": "bilder",
         "breite": 1200,
         "klein": 640
-      }
+      },
+      "vorschau_url": "https://michele4800.github.io/kunden-slug/"
     }
   },
   "_bilder": "Optional je Projekt: Kundenfotos werden als WebP in <ordner> abgelegt (<ziel>.webp und <ziel>-<klein>.webp). Ohne Angabe unverändert unter bilder/."
