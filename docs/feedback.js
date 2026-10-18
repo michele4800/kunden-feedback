@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261019a";
+  const V = "20261019b";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -82,6 +82,14 @@
     css.textContent = `
 .kf-knopf{position:fixed;right:16px;bottom:16px;z-index:2147483000;font:600 15px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#1b1b19;color:#fff;border:0;border-radius:999px;padding:13px 18px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.28);display:flex;gap:8px;align-items:center}
 .kf-knopf:focus-visible,.kf *:focus-visible,.kf-markieren button:focus-visible{outline:3px solid #2f6f8a;outline-offset:2px}
+.kf-schiebt{outline:2px solid #2f6f8a!important;outline-offset:3px;cursor:grab!important;touch-action:none;user-select:none}
+.kf-schiebt:active{cursor:grabbing!important}
+.kf-linien{position:absolute;left:0;top:0;width:0;height:0;z-index:2147482998;pointer-events:none}
+.kf-linie{position:absolute;background:#e11d48}
+.kf-linie.senk{width:1px}.kf-linie.waag{height:1px}
+.kf-linie span{position:absolute;white-space:nowrap;background:#e11d48;color:#fff;font:600 12px/1.3 system-ui,sans-serif;padding:2px 6px;border-radius:4px}
+.kf-linie.senk span{left:4px}
+.kf-linie.waag span{left:8px;top:4px}
 .kf-neu-leiste{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483000;display:flex;gap:12px;align-items:center;background:#065f46;color:#fff;font:600 15px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;padding:10px 12px 10px 18px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.28);max-width:calc(100vw - 32px)}
 .kf-neu-leiste[hidden]{display:none}
 .kf-neu-leiste .kf-btn,.kf-neu .kf-btn{background:#fff;color:#065f46;border-color:#fff}
@@ -157,6 +165,7 @@
 .kf-k form{display:flex;gap:6px;margin-top:8px}.kf-k input{flex:1;border:1px solid #8a877f;border-radius:8px;padding:6px 10px}
 .kf-nur{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .kf-markieren{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483002;background:#1b1b19;color:#fff;font:600 14px/1.4 system-ui,sans-serif;padding:10px 16px;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.3);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px)}
+.kf-markieren.unten{top:auto;bottom:16px}
 .kf-markieren button{font:600 14px system-ui,sans-serif;border-radius:999px;padding:6px 14px;border:2px solid #fff;cursor:pointer}
 .kf-markieren .ja{background:#fff;color:#1b1b19}.kf-markieren .nein{background:transparent;color:#fff}
 .kf-ziel{outline:3px dashed #2f6f8a!important;outline-offset:2px!important;cursor:crosshair!important}
@@ -221,10 +230,12 @@
         <p class="kf-hinweis">${esc(HINWEIS[neu.art])}</p>
         <div class="kf-arten kf-werkzeuge" role="group" aria-label="Auf der Seite zeigen">
           ${neu.art === "text" ? `<button type="button" data-aktion="text-aendern" aria-pressed="${d.alter_text != null}"><span aria-hidden="true">✎</span>${d.alter_text != null ? "Anderen Text ändern" : "Text auf der Seite ändern"}</button>` : ""}
+          <button type="button" data-aktion="verschieben" aria-pressed="${!!d.verschiebung}"><span aria-hidden="true">✥</span>${d.verschiebung ? "Neu verschieben" : "Auf der Seite verschieben"}</button>
           <button type="button" data-aktion="markieren" aria-pressed="${!!neu.stelle && d.alter_text == null}"><span aria-hidden="true">◎</span>${neu.stelle ? "Andere Stelle markieren" : "Stelle auf der Seite markieren"}</button>
         </div>
         ${d.alter_text != null ? `<div class="kf-box"><b>Textänderung</b><br><del>${esc(d.alter_text)}</del><br>→ <ins>${esc(d.neuer_text)}</ins><div class="kf-zeile"><button type="button" class="kf-btn hell klein" data-aktion="text-weg">Änderung verwerfen</button></div></div>` : ""}
-        ${neu.stelle && d.alter_text == null ? `<div class="kf-box">Markierte Stelle: „${esc(neu.stelle.text || neu.stelle.selektor)}“ <button type="button" class="kf-btn hell klein" data-aktion="stelle-weg">entfernen</button></div>` : ""}
+        ${d.verschiebung ? `<div class="kf-box"><b>Verschiebung</b><br>${esc(KF.verschiebungText(d.verschiebung))}<div class="kf-zeile"><button type="button" class="kf-btn hell klein" data-aktion="verschiebung-weg">Verschiebung verwerfen</button></div></div>` : ""}
+        ${neu.stelle && d.alter_text == null && !d.verschiebung ? `<div class="kf-box">Markierte Stelle: „${esc(neu.stelle.text || neu.stelle.selektor)}“ <button type="button" class="kf-btn hell klein" data-aktion="stelle-weg">entfernen</button></div>` : ""}
         ${neu.art === "design" ? `<span class="kf-titel" id="kf-farbe-titel">Farbe</span>
           <div class="kf-farbe" role="group" aria-labelledby="kf-farbe-titel"><input type="color" id="kf-farbe" value="${esc(d.farbe || "#6e7f2a")}" aria-label="Farbe auswählen">
             <span>${d.farbe ? `<span class="kf-tupfer" style="background:${esc(d.farbe)}"></span>${esc(d.farbe)}` : "noch keine gewählt"}</span>
@@ -253,6 +264,7 @@
         ${w.art && w.art !== "sonstiges" ? `<span class="kf-etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="kf-etikett wichtig">Wichtig</span>` : ""}
         ${w.text ? `<p>${esc(w.text)}</p>` : ""}
         ${d.alter_text != null ? `<div class="kf-box"><del>${esc(d.alter_text)}</del><br>→ <ins>${esc(d.neuer_text)}</ins></div>` : ""}
+        ${d.verschiebung ? `<div class="kf-box"><b>Verschiebung:</b> ${esc(KF.verschiebungText(d.verschiebung))}</div>` : ""}
         ${d.farbe ? `<div class="kf-box"><span class="kf-tupfer" style="background:${esc(d.farbe)}"></span>${esc(d.farbe)}</div>` : ""}
         ${(w.anhaenge || []).length ? `<div class="kf-fotos">${w.anhaenge.map(a => `<a class="kf-foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
         ${KF.schritte(w, "kf-schritte")}${arbeit}
@@ -319,7 +331,7 @@
           projekt = null; await zeichnen(); zaehlen();
         } else if (f.dataset.form === "neu") {
           const text = neu.text.trim(), d = { ...neu.details };
-          if (!text && d.alter_text == null) { fehler.textContent = neu.art === "text" ? "Bitte zuerst den Text auf der Seite ändern oder eine Beschreibung schreiben." : "Bitte kurz beschreiben, was anders sein soll."; return; }
+          if (!text && d.alter_text == null && !d.verschiebung) { fehler.textContent = neu.art === "text" ? "Bitte zuerst den Text auf der Seite ändern oder eine Beschreibung schreiben." : "Bitte kurz beschreiben, was anders sein soll."; return; }
           const knopfSenden = f.querySelector("button[type=submit]");
           knopfSenden.disabled = true; knopfSenden.textContent = neu.dateien.length ? "Fotos werden hochgeladen …" : "Wird gesendet …";
           const anhaenge = [];
@@ -327,7 +339,7 @@
           if (neu.art !== "design") delete d.farbe;
           await be.wunschAnlegen({
             projekt_id: projekt.id, art: neu.art, details: d, anhaenge, prioritaet: neu.wichtig,
-            text: text || `Text ändern: „${String(d.alter_text).slice(0, 80)}“`,
+            text: text || (d.alter_text != null ? `Text ändern: „${String(d.alter_text).slice(0, 80)}“` : `Verschieben: „${(neu.stelle && neu.stelle.text || "").slice(0, 60)}“ – ${KF.verschiebungText(d.verschiebung)}`),
             seite_url: location.origin + location.pathname, seite_titel: document.title.slice(0, 300), stelle: neu.stelle,
           });
           vorschauUrls.forEach(u => URL.revokeObjectURL(u)); vorschauUrls.clear();
@@ -361,8 +373,10 @@
       if (a === "farbe-weg") { delete neu.details.farbe; zeichnen(); }
       if (a === "foto-weg") { const f = neu.dateien.splice(+t.dataset.i, 1)[0]; if (vorschauUrls.has(f)) { URL.revokeObjectURL(vorschauUrls.get(f)); vorschauUrls.delete(f); } zeichnen(); }
       if (a === "neu-laden") return neuLaden();
-      if (a === "markieren") auswaehlen(false);
-      if (a === "text-aendern") auswaehlen(true);
+      if (a === "markieren") auswaehlen("markieren");
+      if (a === "text-aendern") auswaehlen("text");
+      if (a === "verschieben") auswaehlen("verschieben");
+      if (a === "verschiebung-weg") { delete neu.details.verschiebung; neu.stelle = null; zeichnen(); }
       if (a === "pipette") {
         try { const r = await new window.EyeDropper().open(); neu.details.farbe = r.sRGBHex; zeichnen(); } catch (err) { /* abgebrochen */ }
       }
@@ -374,9 +388,11 @@
       b.className = "kf-markieren"; b.setAttribute("role", "status"); b.innerHTML = html;
       document.body.append(b); return b;
     }
-    function auswaehlen(textModus) {
+    // modus: "markieren" | "text" | "verschieben"
+    function auswaehlen(modus) {
       dlg.close();
-      const hinweis = banner(textModus ? "Klicke auf den Text, den du ändern möchtest – Esc bricht ab" : "Klicke auf die Stelle, die du meinst – Esc bricht ab");
+      const textModus = modus === "text";
+      const hinweis = banner({ text: "Klicke auf den Text, den du ändern möchtest – Esc bricht ab", verschieben: "Klicke auf das, was du verschieben möchtest – Esc bricht ab" }[modus] || "Klicke auf die Stelle, die du meinst – Esc bricht ab");
       let ziel = null;
       const passt = el => el && !el.closest(".kf-knopf,.kf-markieren,.kf-pin,.kf") && (!textModus || (el.innerText || "").trim().length > 0);
       const über = e => { if (ziel) ziel.classList.remove("kf-ziel"); ziel = passt(e.target) ? e.target : null; if (ziel) ziel.classList.add("kf-ziel"); };
@@ -389,7 +405,7 @@
         aufräumen();
         const r = el.getBoundingClientRect();
         neu.stelle = { selektor: selektor(el), text: kurztext(el), x: Math.round(r.left + scrollX), y: Math.round(r.top + scrollY) };
-        if (textModus) textBearbeiten(el, zurück); else zurück();
+        if (textModus) textBearbeiten(el, zurück); else if (modus === "verschieben") verschieben(el, zurück); else zurück();
       };
       const taste = e => { if (e.key === "Escape") { e.preventDefault(); aufräumen(); zurück(); } };
       document.addEventListener("mouseover", über, true);
@@ -416,6 +432,85 @@
       document.addEventListener("keydown", taste, true);
       b.querySelector(".ja").addEventListener("click", e => { e.stopPropagation(); ende(true); });
       b.querySelector(".nein").addEventListener("click", e => { e.stopPropagation(); ende(false); });
+    }
+
+    // Element mit Maus/Finger (oder Pfeiltasten) verschieben. Hilfslinien zeigen Seitenmitte, Abschnittsmitte und Kanten
+    // anderer Elemente; nahe einer Linie rastet es ein. Gespeichert wird nur die Verschiebung – die Seite wird danach zurückgesetzt.
+    function verschieben(el, fertig) {
+      const RASTER = 8, vorher = el.style.transform, vorherDisplay = el.style.display;
+      // transform wirkt nicht auf Inline-Elemente (z. B. Links) – fürs Ziehen kurz inline-block
+      if (getComputedStyle(el).display === "inline") el.style.display = "inline-block";
+      const vw = document.documentElement.clientWidth;
+      const r0 = el.getBoundingClientRect();
+      const s0 = { x: scrollX, y: scrollY };
+      const start = { l: r0.left + s0.x, t: r0.top + s0.y, w: r0.width, h: r0.height };
+      const block = (el.parentElement && el.parentElement.closest("section, header, footer, main > *")) || el.parentElement || document.body;
+      const bb = block.getBoundingClientRect();
+      // Linien in Seitenkoordinaten: x-Linien (senkrecht) und y-Linien (waagrecht), je mit Kante l/c/r bzw. t/c/b
+      const xs = [{ x: vw / 2 + s0.x, k: "c", name: "mittig zur Seite" }, { x: (bb.left + bb.right) / 2 + s0.x, k: "c", name: "mittig im Abschnitt" }];
+      const ys = [];
+      for (const o of [...block.querySelectorAll("h1,h2,h3,h4,p,img,a,button,table,ul,ol,figure,picture,blockquote,svg")].slice(0, 80)) {
+        if (o === el || o.contains(el) || el.contains(o) || o.closest(".kf, .kf-knopf, .kf-markieren, .kf-pin")) continue;
+        const r = o.getBoundingClientRect();
+        if (!r.width || !r.height) continue;
+        const n = `„${kurztext(o).slice(0, 30)}“`;
+        xs.push({ x: r.left + s0.x, k: "l", name: `links bündig mit ${n}` }, { x: (r.left + r.right) / 2 + s0.x, k: "c", name: `mittig zu ${n}` }, { x: r.right + s0.x, k: "r", name: `rechts bündig mit ${n}` });
+        ys.push({ y: r.top + s0.y, k: "t", name: `oben auf Höhe von ${n}` }, { y: (r.top + r.bottom) / 2 + s0.y, k: "c", name: `mittig auf Höhe von ${n}` }, { y: r.bottom + s0.y, k: "b", name: `unten bündig mit ${n}` });
+      }
+      const linien = document.createElement("div"); linien.className = "kf-linien"; document.body.append(linien);
+      el.classList.add("kf-schiebt");
+      const b = banner(`<span class="kf-info" aria-live="polite">Zieh es an die gewünschte Stelle – oder Pfeiltasten (mit Umschalt 10 px)</span>
+        <button type="button" class="ja">Übernehmen</button><button type="button" class="nein" data-z="1">Zurücksetzen</button><button type="button" class="nein">Abbrechen</button>`);
+      b.classList.add("unten");  // oben würde die Leiste das gezogene Element verdecken
+      const info = b.querySelector(".kf-info");
+      let dx = 0, dy = 0, nameX = "", nameY = "";
+
+      const einrasten = (rohX, rohY) => {
+        const kanten = (p, groesse, d) => ({ [p === "x" ? "l" : "t"]: d, c: d + groesse / 2, [p === "x" ? "r" : "b"]: d + groesse });
+        let bx = null, by = null;
+        const kx = kanten("x", start.w, start.l + rohX), ky = kanten("y", start.h, start.t + rohY);
+        for (const l of xs) { const a = l.x - kx[l.k]; if (Math.abs(a) <= RASTER && (!bx || Math.abs(a) < Math.abs(bx.a))) bx = { a, l }; }
+        for (const l of ys) { const a = l.y - ky[l.k]; if (Math.abs(a) <= RASTER && (!by || Math.abs(a) < Math.abs(by.a))) by = { a, l }; }
+        return { dx: Math.round(rohX + (bx ? bx.a : 0)), dy: Math.round(rohY + (by ? by.a : 0)), lx: bx && bx.l, ly: by && by.l };
+      };
+      const setzen = (ndx, ndy, lx, ly) => {
+        dx = ndx; dy = ndy; nameX = lx ? lx.name : ""; nameY = ly ? ly.name : "";
+        el.style.transform = `${vorher} translate(${dx}px, ${dy}px)`.trim();
+        linien.innerHTML = (lx ? `<div class="kf-linie senk" style="left:${lx.x}px;top:0;height:${document.documentElement.scrollHeight}px"><span style="top:${Math.round(scrollY + 90)}px">${esc(lx.name)}</span></div>` : "")
+          + (ly ? `<div class="kf-linie waag" style="top:${ly.y}px;left:0;width:${document.documentElement.scrollWidth}px"><span>${esc(ly.name)}</span></div>` : "");
+        const pfeil = (v, plus, minus) => v ? `${Math.abs(v)} px ${v > 0 ? plus : minus}` : "";
+        info.textContent = [pfeil(dx, "nach rechts", "nach links"), pfeil(dy, "nach unten", "nach oben"), nameX, nameY].filter(Boolean).join(" · ") || "Noch nicht verschoben";
+      };
+
+      let ziehen = null;
+      const runter = e => { if (e.button) return; e.preventDefault(); el.setPointerCapture(e.pointerId); ziehen = { x: e.clientX, y: e.clientY, dx, dy }; };
+      const bewegen = e => { if (!ziehen) return; const r = einrasten(ziehen.dx + e.clientX - ziehen.x, ziehen.dy + e.clientY - ziehen.y); setzen(r.dx, r.dy, r.lx, r.ly); };
+      const hoch = () => { ziehen = null; };
+      const klickSperre = e => { if (el.contains(e.target)) { e.preventDefault(); e.stopPropagation(); } };
+      const taste = e => {
+        const schritt = e.shiftKey ? 10 : 1, pfeile = { ArrowLeft: [-schritt, 0], ArrowRight: [schritt, 0], ArrowUp: [0, -schritt], ArrowDown: [0, schritt] };
+        if (pfeile[e.key]) { e.preventDefault(); const r = einrasten(dx + pfeile[e.key][0], dy + pfeile[e.key][1]); setzen(r.dx, r.dy, r.lx, r.ly); }
+        if (e.key === "Escape") { e.preventDefault(); ende(false); }
+        if (e.key === "Enter") { e.preventDefault(); ende(true); }
+      };
+      el.addEventListener("pointerdown", runter); el.addEventListener("pointermove", bewegen);
+      el.addEventListener("pointerup", hoch); el.addEventListener("pointercancel", hoch);
+      document.addEventListener("click", klickSperre, true); document.addEventListener("keydown", taste, true);
+      const ende = übernehmen => {
+        el.removeEventListener("pointerdown", runter); el.removeEventListener("pointermove", bewegen);
+        el.removeEventListener("pointerup", hoch); el.removeEventListener("pointercancel", hoch);
+        document.removeEventListener("click", klickSperre, true); document.removeEventListener("keydown", taste, true);
+        el.style.transform = vorher; el.style.display = vorherDisplay; el.classList.remove("kf-schiebt"); linien.remove(); b.remove();
+        if (übernehmen && (dx || dy)) {
+          neu.details.verschiebung = { dx, dy, ausrichtung: [nameX, nameY].filter(Boolean).join("; ").slice(0, 300), breite: vw };
+          if (neu.art === "sonstiges") neu.art = "design";
+        }
+        fertig();
+      };
+      b.querySelector(".ja").addEventListener("click", e => { e.stopPropagation(); ende(true); });
+      b.querySelector("[data-z]").addEventListener("click", e => { e.stopPropagation(); setzen(0, 0, null, null); });
+      b.querySelector(".nein:not([data-z])").addEventListener("click", e => { e.stopPropagation(); ende(false); });
+      setzen(0, 0, null, null);
     }
 
     const kurztext = el => (el.innerText || el.alt || el.getAttribute("aria-label") || el.tagName).trim().replace(/\s+/g, " ").slice(0, 100);

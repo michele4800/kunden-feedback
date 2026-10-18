@@ -193,6 +193,12 @@
     const d = new Date(iso);
     return `voraussichtlich fertig ${d.toDateString() === new Date().toDateString() ? "heute" : "am " + d.toLocaleDateString("de-DE")} gegen ${d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr`;
   };
+  // „24 px nach rechts · 8 px nach oben · mittig zur Seite (bei 1440 px Bildschirmbreite)“
+  KF.verschiebungText = v => {
+    const teil = (n, plus, minus) => n ? `${Math.abs(n)} px ${n > 0 ? plus : minus}` : "";
+    return [teil(+v.dx || 0, "nach rechts", "nach links"), teil(+v.dy || 0, "nach unten", "nach oben"), v.ausrichtung].filter(Boolean).join(" · ")
+      + (v.breite ? ` (bei ${+v.breite} px Bildschirmbreite)` : "");
+  };
   // Fortschrittsleiste Eingegangen → In Arbeit → Fertig; der aktuelle Schritt pulsiert (CSS je Oberfläche)
   KF.schritte = (w, klasse) => {
     const stufe = { offen: 1, in_arbeit: 1, zur_freigabe: 2, erledigt: 3 }[w.status];

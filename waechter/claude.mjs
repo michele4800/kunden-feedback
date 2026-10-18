@@ -65,6 +65,10 @@ export function wunschText(w, verlauf, namen, fotos = []) {
     w.stelle ? `Markierte Stelle: CSS-Selektor ${w.stelle.selektor}, Text „${w.stelle.text || ""}“` : "",
     d.alter_text != null ? `Textänderung – bisher: „${d.alter_text}“\nTextänderung – neu: „${d.neuer_text}“` : "",
     d.farbe ? `Gewünschte Farbe: ${d.farbe}` : "",
+    d.verschiebung ? `Der Kunde hat die markierte Stelle auf der Seite mit der Maus verschoben (bei ${Math.round(+d.verschiebung.breite) || "?"} px Bildschirmbreite): `
+      + `${Math.round(+d.verschiebung.dx) || 0} px nach rechts, ${Math.round(+d.verschiebung.dy) || 0} px nach unten`
+      + `${d.verschiebung.ausrichtung ? `, eingerastet: ${String(d.verschiebung.ausrichtung).slice(0, 300)}` : ""}.\n`
+      + "Setze die gemeinte Position sauber im Layout um (Ausrichtung, Abstände), nicht mit festen Pixel-Verschiebungen, und so, dass es auch am Handy gut aussieht." : "",
     fotos.length ? `Angehängte Fotos:\n${fotos.map(f => `- ${f}`).join("\n")}` : "",
     `Beschreibung: ${w.text}`,
     verlauf.length ? "Verlauf:\n" + verlauf.map(k => `- ${namen[k.autor] || "?"}: ${k.text}`).join("\n") : "",

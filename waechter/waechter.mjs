@@ -130,17 +130,19 @@ Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${
 
   // „Augen“: Bildschirmfotos der betroffenen Seite vor der Änderung
   const seite = seitePfad(p, w.seite_url);
-  const knipsen = async praefix => {
+  const knipsen = async (praefix, verschiebung = null) => {
     if (!seite || !existsSync(path.join(p.ordner, seite))) return [];
-    try { return await ansichten(p, { seite, selektor: (w.stelle || {}).selektor, ziel: `${EINGANG}/ansicht`, praefix }); }
+    try { return await ansichten(p, { seite, selektor: (w.stelle || {}).selektor, ziel: `${EINGANG}/ansicht`, praefix, verschiebung }); }
     catch (e) { log(`[${p.slug}] ${kurz} Bildschirmfoto fehlgeschlagen: ${e.message}`); return []; }
   };
   const vorher = await knipsen("vorher");
+  // Hat der Kunde etwas auf der Seite verschoben: so soll es ungefähr aussehen
+  const wunschbild = (w.details || {}).verschiebung && w.stelle ? await knipsen("wunsch", w.details.verschiebung) : [];
   const fotoText = (liste, wann) => liste.length ? `\nBildschirmfotos ${wann} (Desktop und Handy; die rot gestrichelte Linie zeigt nur die vom Kunden markierte Stelle und ist nicht Teil der Seite) – sieh sie dir mit Read an:\n${liste.map(f => `- ${f}`).join("\n")}` : "";
 
   let r;
   try {
-    r = await claude(`Setze diesen Wunsch in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""}${fotos.length ? `\n${bildHinweis(p)}` : ""}${fotoText(vorher, "der Seite vor deiner Änderung, so sieht der Kunde sie jetzt")}\n\n${wunschText(w, verlauf, namen, fotos)}`,
+    r = await claude(`Setze diesen Wunsch in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""}${fotos.length ? `\n${bildHinweis(p)}` : ""}${fotoText(vorher, "der Seite vor deiner Änderung, so sieht der Kunde sie jetzt")}${fotoText(wunschbild, "mit der Verschiebung des Kunden – so ungefähr wünscht er es sich (nur eine Vorschau, sauber umsetzen)")}\n\n${wunschText(w, verlauf, namen, fotos)}`,
       { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: KONF.max_budget_usd || 3, systemzusatz: SYSTEM });
   } catch (e) { r = { ergebnis: "fehler", zusammenfassung: e.message, frage: "" }; }
 
@@ -157,7 +159,7 @@ Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${
     await aendern(w.id, { fortschritt: "Prüft das Ergebnis auf Desktop und Handy" });
     const stand = git(p.ordner, "status", "--porcelain") + git(p.ordner, "diff");
     try {
-      const pr = await claude(`Du hast diesen Wunsch umgesetzt. Prüfe jetzt mit eigenen Augen, ob er erfüllt ist.${fotoText(vorher, "vorher")}${fotoText(nachher, "nach deiner Änderung")}
+      const pr = await claude(`Du hast diesen Wunsch umgesetzt. Prüfe jetzt mit eigenen Augen, ob er erfüllt ist.${fotoText(vorher, "vorher")}${fotoText(wunschbild, "Wunschbild des Kunden (von ihm verschoben)")}${fotoText(nachher, "nach deiner Änderung")}
 Vergleiche vorher und nachher genau, so wie der Kunde hinsieht (Ausrichtung, Abstände, Lesbarkeit, Desktop UND Handy).
 Ist der Wunsch sichtbar erfüllt und nichts anderes kaputt? Wenn nicht: korrigiere den Code${p.bauen ? ` und führe den Bau aus: ${p.bauen.join(" ")}` : ""}.
 Beschreibe in zusammenfassung nur, was auf den Fotos wirklich zu sehen ist. fotos bleibt leer.\n\n${wunschText(w, verlauf, namen, fotos)}`,

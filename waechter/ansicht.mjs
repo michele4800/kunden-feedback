@@ -39,14 +39,18 @@ function server(ordner) {
 
 // Fotografiert die Seite (bzw. den Abschnitt um den Selektor) und legt PNGs in <ziel>/<praefix>-desktop.png und -handy.png ab.
 // Gibt die Pfade relativ zum Projektordner zurück.
-export async function ansichten(p, { seite, selektor = "", ziel, praefix }) {
+// verschiebung {dx, dy, breite}: das markierte Element so verschoben fotografieren, wie der Kunde es gezogen hat –
+// nur auf dem Gerät, dessen Breite zu seiner passt („Wunschbild“).
+export async function ansichten(p, { seite, selektor = "", ziel, praefix, verschiebung = null }) {
   await mkdir(path.join(p.ordner, ziel), { recursive: true });
   const srv = await server(p.ordner);
   const basis = `http://127.0.0.1:${srv.address().port}/`;
   const browser = await puppeteer.launch({ executablePath: p.chrome || CHROME, headless: true, args: ["--no-first-run", "--disable-extensions"] });
   const fotos = [];
   try {
-    for (const g of GERAETE) {
+    const geraete = verschiebung ? [(+verschiebung.breite || 1440) < 700 ? GERAETE[1] : GERAETE[0]] : GERAETE;
+    const v = verschiebung ? { dx: Math.round(+verschiebung.dx) || 0, dy: Math.round(+verschiebung.dy) || 0 } : null;
+    for (const g of geraete) {
       const seiteTab = await browser.newPage();
       await seiteTab.setViewport({ width: g.width, height: g.height, isMobile: !!g.isMobile, hasTouch: !!g.hasTouch, deviceScaleFactor: 1 });
       await seiteTab.setRequestInterception(true);
@@ -54,16 +58,17 @@ export async function ansichten(p, { seite, selektor = "", ziel, praefix }) {
       await seiteTab.goto(basis + seite, { waitUntil: "networkidle0", timeout: 30000 });
       await seiteTab.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important}" });
       // Abschnitt um die markierte Stelle suchen, Stelle gestrichelt rot umranden
-      const rahmen = await seiteTab.evaluate(sel => {
+      const rahmen = await seiteTab.evaluate((sel, v) => {
         let el = null;
         try { el = sel ? document.querySelector(sel) : null; } catch (e) {}
         if (!el) return null;
         el.style.outline = "3px dashed #e11d48"; el.style.outlineOffset = "4px";
+        if (v) { if (getComputedStyle(el).display === "inline") el.style.display = "inline-block"; el.style.transform = `${el.style.transform} translate(${v.dx}px, ${v.dy}px)`; }
         const block = el.closest("section, header, footer, aside, main > *") || el;
         block.scrollIntoView({ block: "start" });
         const b = block.getBoundingClientRect();
         return { x: 0, y: b.top + scrollY, width: document.documentElement.clientWidth, height: Math.min(Math.max(b.height, 300), 1800) };
-      }, selektor);
+      }, selektor, v);
       const datei = path.join(ziel, `${praefix}-${g.name}.png`).replaceAll("\\", "/");
       await seiteTab.screenshot({ path: path.join(p.ordner, datei), ...(rahmen ? { clip: rahmen, captureBeyondViewport: true } : {}) });
       fotos.push(datei);

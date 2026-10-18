@@ -35,6 +35,10 @@ Im Widget wählt der Kunde zuerst, **was** er möchte – danach zeigt es die pa
 - **Text ändern**: Absatz auf der Seite anklicken und direkt umschreiben. Gespeichert wird „bisher → neu“; die Seite selbst bleibt unverändert.
 - **Foto tauschen / Neuer Inhalt**: bis zu 5 Fotos (JPEG, PNG, WebP, PDF), werden im Browser auf max. 2000 px verkleinert.
 - **Farbe & Design**: Farbwähler mit Pipette (Chrome/Edge) – Farbe direkt von der Seite aufnehmen.
+- **Auf der Seite verschieben**: Element anklicken und mit Maus, Finger oder Pfeiltasten ziehen. Hilfslinien zeigen
+  Seitenmitte, Abschnittsmitte und Kanten anderer Elemente; nahe einer Linie rastet es ein. Gespeichert wird nur die
+  Verschiebung („161 px nach rechts · mittig zur Seite“), die Seite selbst bleibt unverändert. Der Wächter fotografiert
+  daraus ein Wunschbild, Claude setzt die Position sauber im Layout um.
 - **Stelle markieren**: Element anklicken, im Portal und auf der Seite erscheint eine Stecknadel.
 - **Wichtigkeit**: wichtig / normal / kann warten – der Wächter arbeitet wichtige Wünsche zuerst ab.
 

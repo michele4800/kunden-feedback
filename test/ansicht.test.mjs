@@ -32,6 +32,12 @@ try {
   const { data } = await sharp(path.join(ordner, fotos[0])).extract({ left: 700, top: 300, width: 1, height: 1 }).raw().toBuffer({ resolveWithObject: true });
   assert.ok(data[0] > 150 && data[2] < 90, "Abschnitt mit eigenem CSS fotografiert");
   console.log("ok – markierter Abschnitt am Desktop und Handy fotografiert, CSS aus dem Projekt geladen");
+
+  const wunsch = await ansichten(p, { seite: "seite/index.html", selektor: "#zeiten h2", ziel: "eingang/ansicht", praefix: "wunsch", verschiebung: { dx: 300, dy: 0, breite: 1440 } });
+  assert.deepEqual(wunsch, ["eingang/ansicht/wunsch-desktop.png"]);
+  const handy = await ansichten(p, { seite: "seite/index.html", selektor: "#zeiten h2", ziel: "eingang/ansicht", praefix: "wunsch", verschiebung: { dx: 20, dy: 0, breite: 390 } });
+  assert.deepEqual(handy, ["eingang/ansicht/wunsch-handy.png"]);
+  console.log("ok – Wunschbild mit Verschiebung nur auf dem passenden Gerät");
   console.log("\nAlle Ansicht-Tests bestanden.");
 } finally {
   rmSync(ordner, { recursive: true, force: true });

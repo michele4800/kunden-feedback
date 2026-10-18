@@ -1,6 +1,6 @@
 // Kunden-Portal: alle Wünsche eines Projekts, Fragen, Freigabe und Export.
 (async function () {
-  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261019a"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
+  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261019b"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
   const KF = window.KundenFeedback, esc = KF.esc, be = await KF.backend();
@@ -129,6 +129,7 @@
       ${w.art && w.art !== "sonstiges" ? `<span class="etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="etikett wichtig">Wichtig</span>` : w.prioritaet === 3 ? `<span class="etikett">Kann warten</span>` : ""}
       <p class="text">${esc(w.text)}</p>
       ${(w.details || {}).alter_text != null ? `<div class="box"><b>Textänderung</b><br><del>${esc(w.details.alter_text)}</del><br>→ <ins>${esc(w.details.neuer_text)}</ins></div>` : ""}
+      ${(w.details || {}).verschiebung ? `<div class="box"><b>Verschiebung</b><br>${esc(KF.verschiebungText(w.details.verschiebung))}</div>` : ""}
       ${(w.details || {}).farbe ? `<div class="box"><span class="tupfer" style="background:${esc(w.details.farbe)}"></span>Farbe ${esc(w.details.farbe)}</div>` : ""}
       ${(w.anhaenge || []).length ? `<div class="fotos">${w.anhaenge.map(a => `<a class="foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
       ${stand}${arbeit}
@@ -189,6 +190,7 @@
       const d = w.details || {};
       if (d.alter_text != null) z.push(`- Text alt: „${d.alter_text}“`, `- Text neu: „${d.neuer_text}“`);
       if (d.farbe) z.push(`- Farbe: ${d.farbe}`);
+      if (d.verschiebung) z.push(`- Verschiebung: ${KF.verschiebungText(d.verschiebung)}`);
       if ((w.anhaenge || []).length) z.push(`- Fotos: ${w.anhaenge.map(a => a.name).join(", ")} (im Portal ansehen)`);
       if (w.stelle) z.push(`- Stelle: \`${w.stelle.selektor}\` („${w.stelle.text || ""}“)`);
       z.push(`- Von: ${namen[w.autor] || ""}, ${KF.zeit(w.erstellt_am)}`, "", "> " + w.text.replace(/\n/g, "\n> "));
