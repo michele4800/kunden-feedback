@@ -44,6 +44,19 @@ create table if not exists public.wuensche (
   geaendert_am timestamptz not null default now()
 );
 create index if not exists wuensche_projekt on public.wuensche(projekt_id, erstellt_am desc);
+-- Werkzeuge für Kunden (seit Version 2): Art des Wunsches, Details (Text alt/neu, Farbe), Anhänge (Fotos)
+alter table public.wuensche add column if not exists art text not null default 'sonstiges';
+alter table public.wuensche add column if not exists details jsonb not null default '{}'::jsonb;
+alter table public.wuensche add column if not exists anhaenge jsonb not null default '[]'::jsonb;
+do $$ begin
+  alter table public.wuensche add constraint wuensche_art check (art in ('text', 'foto', 'design', 'inhalt', 'fehler', 'sonstiges'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.wuensche add constraint wuensche_details check (jsonb_typeof(details) = 'object' and length(details::text) <= 20000);
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.wuensche add constraint wuensche_anhaenge check (jsonb_typeof(anhaenge) = 'array' and jsonb_array_length(anhaenge) <= 10);
+exception when duplicate_object then null; end $$;
 
 create table if not exists public.kommentare (
   id          uuid primary key default gen_random_uuid(),
@@ -107,7 +120,6 @@ begin
     new.geaendert_am := now();
     if not public.ist_agentur(new.projekt_id) then
       new.status := 'offen';
-      new.prioritaet := 2;
       new.bearbeiter := '';
       new.fortschritt := '';
       new.fertig_bis := null;
@@ -241,6 +253,31 @@ create policy automatik_anlegen on public.automatik for insert to authenticated 
 drop policy if exists automatik_aendern on public.automatik;
 create policy automatik_aendern on public.automatik for update to authenticated
   using (public.ist_agentur(projekt_id)) with check (public.ist_agentur(projekt_id));
+
+-- ---------- Fotos und Anhänge (Supabase Storage) ----------
+-- Pfad: <projekt_id>/<zufall>-<dateiname>. Lesen und Hochladen nur für Projektmitglieder, Löschen nur für die Agentur.
+create or replace function public.projekt_aus_pfad(pfad text) returns uuid
+  language plpgsql immutable as
+$$ begin return split_part(pfad, '/', 1)::uuid; exception when others then return null; end $$;
+
+do $$
+begin
+  if exists (select 1 from information_schema.tables where table_schema = 'storage' and table_name = 'buckets') then
+    insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+    values ('anhaenge', 'anhaenge', false, 6291456, array['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+    on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+    drop policy if exists anhaenge_lesen on storage.objects;
+    create policy anhaenge_lesen on storage.objects for select to authenticated
+      using (bucket_id = 'anhaenge' and public.ist_mitglied(public.projekt_aus_pfad(name)));
+    drop policy if exists anhaenge_hochladen on storage.objects;
+    create policy anhaenge_hochladen on storage.objects for insert to authenticated
+      with check (bucket_id = 'anhaenge' and public.ist_mitglied(public.projekt_aus_pfad(name)));
+    drop policy if exists anhaenge_loeschen on storage.objects;
+    create policy anhaenge_loeschen on storage.objects for delete to authenticated
+      using (bucket_id = 'anhaenge' and public.ist_agentur(public.projekt_aus_pfad(name)));
+  end if;
+end $$;
 
 -- ---------- Live-Synchronisierung (Supabase Realtime) ----------
 do $$

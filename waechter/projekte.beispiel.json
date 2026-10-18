@@ -7,10 +7,26 @@
   "projekte": {
     "huehnerhof-schneider": {
       "ordner": "C:/Projekte/huehnerhof-schneider",
-      "bauen": ["python", "werkzeuge/bauen.py", "--ohne-paket"],
+      "bauen": [
+        "python",
+        "werkzeuge/bauen.py",
+        "--ohne-paket"
+      ],
       "zweig": "main",
       "veroeffentlichen": true,
-      "geschuetzt": [".git", ".github/", ".gitignore", "werkzeuge/", "livegang/"]
+      "geschuetzt": [
+        ".git",
+        ".github/",
+        ".gitignore",
+        "werkzeuge/",
+        "livegang/"
+      ],
+      "bilder": {
+        "ordner": "bilder",
+        "breite": 1200,
+        "klein": 640
+      }
     }
-  }
+  },
+  "_bilder": "Optional je Projekt: Kundenfotos werden als WebP in <ordner> abgelegt (<ziel>.webp und <ziel>-<klein>.webp). Ohne Angabe unverändert unter bilder/."
 }

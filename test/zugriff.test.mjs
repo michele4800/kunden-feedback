@@ -16,6 +16,13 @@ await db.exec(`
     $$ select nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
   grant usage on schema auth, public to anon, authenticated;
   grant execute on function auth.uid() to anon, authenticated;
+  -- Supabase Storage nachbilden (vereinfacht)
+  create schema storage;
+  create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint, allowed_mime_types text[]);
+  create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text, name text, owner uuid default auth.uid());
+  alter table storage.objects enable row level security;
+  grant usage on schema storage to authenticated;
+  grant select, insert, delete on storage.objects to authenticated;
 `);
 await db.exec(schema);
 await db.exec(schema); // zweimal: muss wiederholbar sein
@@ -64,7 +71,7 @@ await test("Kunde legt Wunsch an – Status, Autor und Automatik-Felder setzt de
   const r = await als("kundeA", `insert into wuensche (projekt_id, text, status, prioritaet, autor, bearbeiter, fertig_bis)
     values ($1, 'Foto tauschen', 'erledigt', 1, $2, 'Hacker', now()) returning *`, [ID.projA, ID.kundeB]);
   wunschA = r.rows[0];
-  assert.equal(wunschA.status, "offen"); assert.equal(wunschA.prioritaet, 2);
+  assert.equal(wunschA.status, "offen"); assert.equal(wunschA.prioritaet, 1); // Wichtigkeit darf der Kunde wählen
   assert.equal(wunschA.autor, ID.kundeA); assert.equal(wunschA.bearbeiter, ""); assert.equal(wunschA.fertig_bis, null);
 });
 
@@ -154,6 +161,29 @@ await test("Vorlage neuer-kunde.sql legt Projekt, Mitglieder, Automatik und Frag
   await db.exec(`select set_config('request.jwt.claim.sub', '${id}', false); set role authenticated;`);
   try { assert.deepEqual((await db.query("select slug from projekte")).rows.map(x => x.slug), ["huehnerhof-schneider"]); }
   finally { await db.exec("reset role;"); }
+});
+
+await test("Werkzeuge: Art, Details und Wichtigkeit vom Kunden; ungültige Werte abgelehnt", async () => {
+  const r = await als("kundeA", `insert into wuensche (projekt_id, text, art, details, prioritaet, anhaenge)
+    values ($1, 'Text ändern', 'text', '{"alter_text":"Alt","neuer_text":"Neu","farbe":"#336699"}', 3, '[{"pfad":"x","name":"a.jpg"}]')
+    returning art, details, prioritaet, status`, [ID.projA]);
+  assert.equal(r.rows[0].art, "text"); assert.equal(r.rows[0].details.neuer_text, "Neu");
+  assert.equal(r.rows[0].prioritaet, 3); assert.equal(r.rows[0].status, "offen");
+  await fehlt("kundeA", "insert into wuensche (projekt_id, text, art) values ($1, 'x', 'hack')", [ID.projA], /check constraint/);
+  await fehlt("kundeA", "insert into wuensche (projekt_id, text, anhaenge) values ($1, 'x', '{}')", [ID.projA], /check constraint/);
+  await fehlt("kundeA", "insert into wuensche (projekt_id, text, prioritaet) values ($1, 'x', 9)", [ID.projA], /check constraint/);
+});
+
+await test("Foto-Speicher: nur im eigenen Projekt hochladen und lesen, löschen nur die Agentur", async () => {
+  const b = await db.query("select public from storage.buckets where id = 'anhaenge'");
+  assert.equal(b.rows[0].public, false);
+  await als("kundeA", "insert into storage.objects (bucket_id, name) values ('anhaenge', $1)", [`${ID.projA}/1-foto.jpg`]);
+  await fehlt("kundeA", "insert into storage.objects (bucket_id, name) values ('anhaenge', $1)", [`${ID.projB}/2-foto.jpg`], /row-level security/);
+  await fehlt("kundeA", "insert into storage.objects (bucket_id, name) values ('anhaenge', 'kein-uuid/3.jpg')", [], /row-level security/);
+  assert.equal((await als("kundeB", "select count(*)::int c from storage.objects")).rows[0].c, 0);
+  assert.equal((await als("kundeA2", "select count(*)::int c from storage.objects")).rows[0].c, 1);
+  assert.equal((await als("kundeA", "delete from storage.objects returning id")).rows.length, 0);
+  assert.equal((await als("agentur", "delete from storage.objects returning id")).rows.length, 1);
 });
 
 console.log(`\nAlle ${n} Tests bestanden.`);

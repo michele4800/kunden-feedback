@@ -40,6 +40,12 @@
       async antworten(p) { return ok(await sb.from("antworten").select("*").eq("projekt_id", p)); },
       async antwortSpeichern(frage_id, projekt_id, wert) { ok(await sb.from("antworten").upsert({ frage_id, projekt_id, wert })); },
       async automatik(p) { return ok(await sb.from("automatik").select("*").eq("projekt_id", p).maybeSingle()); },
+      async dateiHochladen(p, blob, name) {
+        const pfad = `${p}/${crypto.randomUUID()}-${sicherName(name)}`;
+        ok(await sb.storage.from("anhaenge").upload(pfad, blob, { contentType: blob.type, upsert: false }));
+        return { pfad, name: String(name).slice(0, 120), typ: blob.type, groesse: blob.size };
+      },
+      async dateiUrl(pfad) { const d = ok(await sb.storage.from("anhaenge").createSignedUrl(pfad, 3600)); return d.signedUrl; },
       async automatikSetzen(p, modus) { ok(await sb.from("automatik").upsert({ projekt_id: p, modus })); },
       beobachten(p, fn) {
         const kanal = sb.channel("kf-" + p);
@@ -110,8 +116,8 @@
       async wuensche(p) { return daten().wuensche.filter(w => w.projekt_id === p).sort((a, b) => b.erstellt_am.localeCompare(a.erstellt_am)); },
       async wunschAnlegen(w) {
         const d = daten(), agentur = rolleVon(w.projekt_id) === "agentur";
-        const neuer = { id: neu(), stelle: null, seite_url: "", seite_titel: "", ...w, autor: ich().id, status: agentur && w.status ? w.status : "offen",
-          prioritaet: 2, bearbeiter: "", fortschritt: "", fertig_bis: null, freigegeben: false, erstellt_am: jetzt(), geaendert_am: jetzt() };
+        const neuer = { id: neu(), stelle: null, seite_url: "", seite_titel: "", art: "sonstiges", details: {}, anhaenge: [], ...w, autor: ich().id, status: agentur && w.status ? w.status : "offen",
+          prioritaet: [1, 2, 3].includes(w.prioritaet) ? w.prioritaet : 2, bearbeiter: "", fortschritt: "", fertig_bis: null, freigegeben: false, erstellt_am: jetzt(), geaendert_am: jetzt() };
         d.wuensche.push(neuer); schreiben(d); return neuer;
       },
       async wunschAendern(id, patch) {
@@ -137,6 +143,14 @@
         d.antworten.push({ frage_id, projekt_id, wert, autor: ich().id, geaendert_am: jetzt() }); schreiben(d);
       },
       async automatik(p) { return daten().automatik.find(a => a.projekt_id === p) || null; },
+      async dateiHochladen(p, blob, name) {
+        const url = await new Promise(ok => { const r = new FileReader(); r.onload = () => ok(r.result); r.readAsDataURL(blob); });
+        const pfad = `${p}/${neu()}-${sicherName(name)}`;
+        try { const d = JSON.parse(localStorage.getItem("kf-demo-dateien") || "{}"); d[pfad] = url; localStorage.setItem("kf-demo-dateien", JSON.stringify(d)); }
+        catch (e) { throw new Error("Im Demo-Modus ist der Speicher voll – bitte ein kleineres Foto wählen."); }
+        return { pfad, name: String(name).slice(0, 120), typ: blob.type, groesse: blob.size };
+      },
+      async dateiUrl(pfad) { try { return JSON.parse(localStorage.getItem("kf-demo-dateien") || "{}")[pfad] || ""; } catch (e) { return ""; } },
       async automatikSetzen(p, modus) { const d = daten(); const a = d.automatik.find(x => x.projekt_id === p); if (a) a.modus = modus; else d.automatik.push({ projekt_id: p, modus }); schreiben(d); },
       beobachten(p, fn) { const f = () => fn("alle"); zuhörer.add(f); return () => zuhörer.delete(f); },
     };
@@ -146,11 +160,28 @@
   KF.backend = function () {
     if (versprechen) return versprechen;
     const k = window.KF_KONFIG || {};
-    versprechen = Promise.resolve(k.url && k.schluessel && window.supabase ? supabaseBackend(k) : demoBackend());
+    // ?kf-demo in der Adresse: Sandbox im Browser, auch wenn ein Server eingetragen ist (zum Vorführen und Testen)
+    const sandbox = /[?&]kf-demo(=|&|$)/.test(location.search);
+    versprechen = Promise.resolve(!sandbox && k.url && k.schluessel && window.supabase ? supabaseBackend(k) : demoBackend());
     return versprechen;
   };
 
   // ---------- gemeinsame Helfer ----------
+  function sicherName(n) { return String(n || "datei").normalize("NFKD").replace(/[^\w.-]+/g, "-").replace(/-+/g, "-").slice(-80) || "datei"; }
+  KF.ARTEN = {
+    text: "Text ändern", foto: "Foto tauschen", design: "Farbe & Design", inhalt: "Neuer Inhalt", fehler: "Fehler melden", sonstiges: "Sonstiges",
+  };
+  KF.WICHTIG = { 1: "Wichtig", 2: "Normal", 3: "Kann warten" };
+  // Foto im Browser verkleinern (max. 2000 px, JPEG) – spart Speicher und Upload-Zeit
+  KF.verkleinern = async (datei, max = 2000) => {
+    if (!/^image\/(jpeg|png|webp)$/.test(datei.type)) return datei;
+    const bild = await createImageBitmap(datei);
+    const f = Math.min(1, max / Math.max(bild.width, bild.height));
+    if (f === 1 && datei.size < 1500000) return datei;
+    const c = document.createElement("canvas"); c.width = Math.round(bild.width * f); c.height = Math.round(bild.height * f);
+    c.getContext("2d").drawImage(bild, 0, 0, c.width, c.height);
+    return await new Promise(ok => c.toBlob(b => ok(b), "image/jpeg", 0.86));
+  };
   KF.esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   KF.zeit = iso => iso ? new Date(iso).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }) : "";
   // „voraussichtlich fertig in ca. 20 Min.“ bzw. „… heute gegen 15:30“

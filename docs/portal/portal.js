@@ -97,6 +97,7 @@
       <section role="tabpanel">${{ wuensche: () => wunschListe(wuensche, kommentare), fragen: () => fragenAnsicht(fragen, antworten), neu: neuAnsicht,
         export: () => exportAnsicht(wuensche, kommentare, fragen, antworten), einstellungen: () => einstellungen(auto) }[reiter]()}</section>`;
     scrollTo(0, scroll);
+    for (const a of inhalt.querySelectorAll("[data-anhang]")) { try { const u = await be.dateiUrl(a.dataset.anhang); a.href = u; a.querySelector("img").src = u; } catch (e) {} }
   }
 
   function wunschListe(wuensche, kommentare) {
@@ -124,7 +125,12 @@
     return `<li class="w" id="w-${w.id}">
       <div class="w-kopf"><span class="status ${w.status}">${esc(KF.STATUS[w.status] || w.status)}${w.status === "zur_freigabe" && w.freigegeben ? " – freigegeben" : ""}</span>
         <span class="meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}</span></div>
-      <p class="text">${esc(w.text)}</p>${arbeit}
+      ${w.art && w.art !== "sonstiges" ? `<span class="etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="etikett wichtig">Wichtig</span>` : w.prioritaet === 3 ? `<span class="etikett">Kann warten</span>` : ""}
+      <p class="text">${esc(w.text)}</p>
+      ${(w.details || {}).alter_text != null ? `<div class="box"><b>Textänderung</b><br><del>${esc(w.details.alter_text)}</del><br>→ <ins>${esc(w.details.neuer_text)}</ins></div>` : ""}
+      ${(w.details || {}).farbe ? `<div class="box"><span class="tupfer" style="background:${esc(w.details.farbe)}"></span>Farbe ${esc(w.details.farbe)}</div>` : ""}
+      ${(w.anhaenge || []).length ? `<div class="fotos">${w.anhaenge.map(a => `<a class="foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
+      ${arbeit}
       <div class="meta">Seite: ${seite}${w.stelle ? ` · Stelle: „${esc(w.stelle.text || w.stelle.selektor)}“` : ""}
         ${(w.autor === ich.id && w.status === "offen") || rolle === "agentur" ? ` · <button class="btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen<span class="nur-vorleser"> – Wunsch „${esc(w.text.slice(0, 40))}“</span></button>` : ""}</div>
       ${ag ? `<div class="agentur">
@@ -178,7 +184,11 @@
     const aktiv = wuensche.filter(w => AKTIV.includes(w.status));
     if (!aktiv.length) z.push("_keine_");
     for (const w of aktiv) {
-      z.push("", `### ${w.seite_titel || "Allgemein"} – ${KF.STATUS[w.status]} (id ${w.id})`, `- Seite: ${w.seite_url || "–"}`);
+      z.push("", `### ${w.seite_titel || "Allgemein"} – ${KF.STATUS[w.status]} (id ${w.id})`, `- Art: ${KF.ARTEN[w.art] || "Sonstiges"} · Wichtigkeit: ${KF.WICHTIG[w.prioritaet] || "Normal"}`, `- Seite: ${w.seite_url || "–"}`);
+      const d = w.details || {};
+      if (d.alter_text != null) z.push(`- Text alt: „${d.alter_text}“`, `- Text neu: „${d.neuer_text}“`);
+      if (d.farbe) z.push(`- Farbe: ${d.farbe}`);
+      if ((w.anhaenge || []).length) z.push(`- Fotos: ${w.anhaenge.map(a => a.name).join(", ")} (im Portal ansehen)`);
       if (w.stelle) z.push(`- Stelle: \`${w.stelle.selektor}\` („${w.stelle.text || ""}“)`);
       z.push(`- Von: ${namen[w.autor] || ""}, ${KF.zeit(w.erstellt_am)}`, "", "> " + w.text.replace(/\n/g, "\n> "));
       for (const k of kommentare.filter(k => k.wunsch_id === w.id)) z.push(`- ${namen[k.autor] || ""}: ${k.text}`);

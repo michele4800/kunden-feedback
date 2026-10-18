@@ -9,7 +9,8 @@
 import { createClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { claude as claudeRoh, SYSTEM, SCHEMA_SCHAETZUNG, SCHEMA_ERGEBNIS, wunschText } from "./claude.mjs";
-import { readFileSync, existsSync, writeFileSync } from "node:fs";
+import { bildHinweis, fotosAblegen } from "./fotos.mjs";
+import { readFileSync, existsSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -66,17 +67,37 @@ async function lebenszeichen(projekt_id, hinweis) {
   ok(await sb.from("automatik").update({ letzter_lauf: new Date().toISOString(), hinweis: hinweis.slice(0, 480) }).eq("projekt_id", projekt_id));
 }
 
+// ---------- Fotos des Kunden ----------
+const EINGANG = "eingang";
+const sicher = n => String(n || "foto").normalize("NFKD").replace(/[^\w.-]+/g, "-").slice(-60) || "foto";
+// Lädt die angehängten Fotos nach <projekt>/eingang/<kurz>/, damit Claude sie ansehen kann
+async function fotosHolen(p, w, kurz) {
+  const liste = [];
+  for (const [i, a] of (w.anhaenge || []).entries()) {
+    try {
+      const blob = ok(await sb.storage.from("anhaenge").download(a.pfad));
+      const rel = `${EINGANG}/${kurz}/${i + 1}-${sicher(a.name)}`;
+      mkdirSync(path.join(p.ordner, EINGANG, kurz), { recursive: true });
+      writeFileSync(path.join(p.ordner, rel), Buffer.from(await blob.arrayBuffer()));
+      liste.push(rel);
+    } catch (e) { log(`[${p.slug}] Foto ${a.name} nicht geladen: ${e.message}`); }
+  }
+  return liste;
+}
 // ---------- Ein Wunsch ----------
 async function umsetzen(p, projekt, modus, w, namen, meineId) {
   const verlauf = ok(await sb.from("kommentare").select("*").eq("wunsch_id", w.id).order("erstellt_am"));
   const kurz = w.id.slice(0, 8);
   log(`[${p.slug}] Wunsch ${kurz}: ${w.text.slice(0, 60)}`);
+  rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
+  const fotos = await fotosHolen(p, w, kurz);
 
   // 1. Aufwand schätzen (nur lesen)
   const s = await claude(`Schätze, wie viele Minuten die Umsetzung dieses Wunsches in diesem Projekt dauert (inkl. Prüfen).
-Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${wunschText(w, verlauf, namen)}`,
+Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${wunschText(w, verlauf, namen, fotos)}`,
     { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 0.5, systemzusatz: SYSTEM });
   if (s.rueckfrage) {
+    rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
     await aendern(w.id, { status: "rueckfrage", bearbeiter: NAME, fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null });
     await kommentieren(w.id, s.rueckfrage);
     return;
@@ -92,9 +113,15 @@ Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${
   const werkzeuge = ["Read", "Edit", "Write", "Glob", "Grep", ...(p.bauen ? [`Bash(${p.bauen.join(" ")})`] : [])];
   let r;
   try {
-    r = await claude(`Setze diesen Wunsch in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""}\n\n${wunschText(w, verlauf, namen)}`,
+    r = await claude(`Setze diesen Wunsch in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""}${fotos.length ? `\n${bildHinweis(p)}` : ""}\n\n${wunschText(w, verlauf, namen, fotos)}`,
       { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: KONF.max_budget_usd || 3, systemzusatz: SYSTEM });
   } catch (e) { r = { ergebnis: "fehler", zusammenfassung: e.message, frage: "" }; }
+
+  // Gewählte Fotos ins Projekt übernehmen, danach den Eingang leeren
+  if (r.ergebnis === "erledigt" && (r.fotos || []).length) {
+    try { await fotosAblegen(p, r.fotos, fotos); } catch (e) { r = { ergebnis: "fehler", zusammenfassung: "Foto konnte nicht übernommen werden: " + e.message, frage: "" }; }
+  }
+  rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
 
   const verboten = geschuetztBeruehrt(p);
   if (r.ergebnis === "erledigt" && verboten.length) r = { ergebnis: "fehler", zusammenfassung: "Geschützte Dateien geändert: " + verboten.join(", "), frage: "" };
@@ -174,7 +201,9 @@ async function runde(meineId) {
         if (letzte && letzte.autor !== meineId) { await aendern(w.id, { status: "offen", fortschritt: "Antwort erhalten – geht weiter" }); w.status = "offen"; }
       }
 
-      const warteschlange = liste.filter(w => w.status === "offen" && w.bearbeiter !== "Agentur");
+      // Wichtige Wünsche zuerst, sonst in der Reihenfolge des Eingangs
+      const warteschlange = liste.filter(w => w.status === "offen" && w.bearbeiter !== "Agentur")
+        .sort((a, b) => (a.prioritaet || 2) - (b.prioritaet || 2) || a.erstellt_am.localeCompare(b.erstellt_am));
       // Platz in der Warteschlange anzeigen
       for (const [i, w] of warteschlange.entries()) {
         const text = i === 0 ? "Wird gleich bearbeitet" : `In der Warteschlange – Platz ${i + 1}`;

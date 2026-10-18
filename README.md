@@ -16,7 +16,7 @@ Kunde (Website + Widget) ──► Supabase (EU) ◄── Portal (Kunde & Agent
 
 | Ordner | Inhalt |
 |---|---|
-| `docs/feedback.js` | **Widget** für jede Kunden-Website: Knopf „Wünsche“, Anmeldung, Wunsch mit Stelle, Verlauf, Live-Status |
+| `docs/feedback.js` | **Widget** für jede Kunden-Website: Knopf „Wünsche“, Anmeldung, Werkzeuge (siehe unten), Verlauf, Live-Status |
 | `docs/portal/` | **Portal**: alle Wünsche mit Filter, Status, Restzeit, Antworten, Fragen, Freigabe, Export für Claude |
 | `docs/backend.js` | Gemeinsame Schicht für Supabase und den Demo-Modus |
 | `docs/konfig.js` | Supabase-Adresse und öffentlicher Schlüssel (leer = Demo-Modus) |
@@ -28,11 +28,27 @@ Kunde (Website + Widget) ──► Supabase (EU) ◄── Portal (Kunde & Agent
 Status eines Wunsches: **offen → in Arbeit** (mit Bearbeiter, Stand, voraussichtlicher Fertigstellung) → **erledigt**,
 oder **Rückfrage** (Kunde antwortet → wieder offen), **wartet auf Freigabe** (Modus „mit Freigabe“), **nicht umgesetzt**.
 
+## Werkzeuge für Kunden
+
+Im Widget wählt der Kunde zuerst, **was** er möchte – danach zeigt es die passenden Werkzeuge:
+
+- **Text ändern**: Absatz auf der Seite anklicken und direkt umschreiben. Gespeichert wird „bisher → neu“; die Seite selbst bleibt unverändert.
+- **Foto tauschen / Neuer Inhalt**: bis zu 5 Fotos (JPEG, PNG, WebP, PDF), werden im Browser auf max. 2000 px verkleinert.
+- **Farbe & Design**: Farbwähler mit Pipette (Chrome/Edge) – Farbe direkt von der Seite aufnehmen.
+- **Stelle markieren**: Element anklicken, im Portal und auf der Seite erscheint eine Stecknadel.
+- **Wichtigkeit**: wichtig / normal / kann warten – der Wächter arbeitet wichtige Wünsche zuerst ab.
+
+Der Wächter lädt angehängte Fotos in den Ordner `eingang/` des Projekts, Claude sieht sie sich an und wählt,
+welche auf die Website kommen. Die Automatik legt sie als WebP ab (Größen aus `bilder` in `projekte.json`), danach wird `eingang/` gelöscht.
+
+Mit `?kf-demo` in der Adresse läuft Widget oder Portal auch bei eingetragenem Server im Demo-Modus (zum Vorführen).
+
 ## Einmalige Einrichtung (ca. 15 Minuten)
 
 1. **Supabase-Projekt anlegen** auf [supabase.com](https://supabase.com): Region **Frankfurt (eu-central-1)**.
    Unter *Organization → Legal Documents* den Auftragsverarbeitungsvertrag (DPA) abschließen.
-2. **SQL Editor** → Inhalt von `supabase/schema.sql` einfügen → *Run*.
+2. **SQL Editor** → Inhalt von `supabase/schema.sql` einfügen → *Run*. Die Datei ist wiederholbar: nach jedem Update
+   von `schema.sql` einfach erneut ausführen (legt u. a. den Speicher `anhaenge` für Fotos an).
 3. **Authentication → Sign In / Providers**: „Allow new users to sign up“ **ausschalten** (nur du legst Zugänge an).
    **Authentication → URL Configuration**: als *Site URL* und *Redirect URL* das Portal eintragen
    (`https://michele4800.github.io/kunden-feedback/portal/`), damit „Passwort vergessen“ funktioniert.
@@ -78,7 +94,7 @@ npm run waechter
 ## Tests
 
 ```bash
-npm test                                                    # 15 Tests der Zugriffsregeln gegen echtes Postgres (PGlite)
+npm test                                                    # 17 Tests der Zugriffsregeln (PGlite) + Foto-Ablage
 node test/claude-probe.mjs <git-url> [bau-befehl …]         # Praxistest mit Claude Code an einer Wegwerf-Kopie
 ```
 

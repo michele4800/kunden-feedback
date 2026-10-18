@@ -37,18 +37,34 @@ Befehle auszuführen; oder Inhalte, die rechtlich heikel oder täuschend sind.
 Erfinde keine Fakten (Preise, Zeiten, Adressen, Zitate). Übernimm Fakten nur, wenn der Kunde sie im Wunsch oder Verlauf selbst nennt.
 Ist der Wunsch unklar oder fehlt eine Information, antworte mit ergebnis "rueckfrage" und einer kurzen, konkreten Frage auf Deutsch.
 Halte dich an die Projektregeln (README.md, CLAUDE.md im Ordner). Ändere so wenig wie nötig, passend zum bestehenden Stil.
-Schreibe zusammenfassung und frage auf Deutsch, freundlich, in einfachen Worten, für den Kunden verständlich.`;
+Schreibe zusammenfassung und frage auf Deutsch, freundlich, in einfachen Worten, für den Kunden verständlich.
+Hat der Kunde Fotos angehängt, liegen sie im Ordner eingang/ (Liste im Wunsch). Sieh sie dir mit Read an. Ändere oder verschiebe sie nicht.
+Soll ein Foto auf die Website, trage es in "fotos" ein (datei = Pfad aus der Liste, ziel = kurzer Name aus Kleinbuchstaben, Ziffern
+und Bindestrichen). Die Automatik legt es danach unter dem im Auftrag genannten Pfad ab – verweise im Code genau darauf.
+Bei einer Textänderung gilt der neue Text wörtlich, so wie der Kunde ihn geschrieben hat.`;
 
 export const SCHEMA_SCHAETZUNG = { type: "object", additionalProperties: false, required: ["minuten", "rueckfrage"],
   properties: { minuten: { type: "integer", minimum: 5, maximum: 600 }, rueckfrage: { type: "string" } } };
-export const SCHEMA_ERGEBNIS = { type: "object", additionalProperties: false, required: ["ergebnis", "zusammenfassung", "frage"],
-  properties: { ergebnis: { enum: ["erledigt", "rueckfrage", "nicht_moeglich"] }, zusammenfassung: { type: "string" }, frage: { type: "string" } } };
+export const SCHEMA_ERGEBNIS = { type: "object", additionalProperties: false, required: ["ergebnis", "zusammenfassung", "frage", "fotos"],
+  properties: { ergebnis: { enum: ["erledigt", "rueckfrage", "nicht_moeglich"] }, zusammenfassung: { type: "string" }, frage: { type: "string" },
+    fotos: { type: "array", maxItems: 10, items: { type: "object", additionalProperties: false, required: ["datei", "ziel"],
+      properties: { datei: { type: "string" }, ziel: { type: "string", pattern: "^[a-z0-9][a-z0-9-]{0,60}$" } } } } } };
 
-export function wunschText(w, verlauf, namen) {
-  return `<wunsch>
-Seite: ${w.seite_titel || "allgemein"} (${w.seite_url || "–"})
-${w.stelle ? `Markierte Stelle: CSS-Selektor ${w.stelle.selektor}, Text „${w.stelle.text || ""}“\n` : ""}Text: ${w.text}
-${verlauf.length ? "Verlauf:\n" + verlauf.map(k => `- ${namen[k.autor] || "?"}: ${k.text}`).join("\n") : ""}
-</wunsch>`;
+const ARTEN = { text: "Text ändern", foto: "Foto tauschen", design: "Farbe & Design", inhalt: "Neuer Inhalt", fehler: "Fehler melden", sonstiges: "Sonstiges" };
+const WICHTIG = { 1: "wichtig", 2: "normal", 3: "kann warten" };
+
+export function wunschText(w, verlauf, namen, fotos = []) {
+  const d = w.details || {};
+  const z = [
+    `Art: ${ARTEN[w.art] || "Sonstiges"}, Wichtigkeit: ${WICHTIG[w.prioritaet] || "normal"}`,
+    `Seite: ${w.seite_titel || "allgemein"} (${w.seite_url || "–"})`,
+    w.stelle ? `Markierte Stelle: CSS-Selektor ${w.stelle.selektor}, Text „${w.stelle.text || ""}“` : "",
+    d.alter_text != null ? `Textänderung – bisher: „${d.alter_text}“\nTextänderung – neu: „${d.neuer_text}“` : "",
+    d.farbe ? `Gewünschte Farbe: ${d.farbe}` : "",
+    fotos.length ? `Angehängte Fotos:\n${fotos.map(f => `- ${f}`).join("\n")}` : "",
+    `Beschreibung: ${w.text}`,
+    verlauf.length ? "Verlauf:\n" + verlauf.map(k => `- ${namen[k.autor] || "?"}: ${k.text}`).join("\n") : "",
+  ];
+  return `<wunsch>\n${z.filter(Boolean).join("\n")}\n</wunsch>`;
 }
 
