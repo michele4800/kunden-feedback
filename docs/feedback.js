@@ -75,6 +75,17 @@
 .kf-arten input{position:absolute;opacity:0;width:1px;height:1px}
 .kf-arten label:has(input:checked){border-color:#1b1b19;background:#f3f2ee}
 .kf-arten label:has(input:focus-visible){outline:3px solid #2f6f8a;outline-offset:2px}
+.kf-werkzeuge{margin-top:8px}
+.kf-werkzeuge button{font:inherit;font-weight:500;font-size:13px;color:inherit;background:#fff;border:2px dashed #c9c6bc;border-radius:10px;padding:8px 6px;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+.kf-werkzeuge button span{font-size:18px;line-height:1}
+.kf-werkzeuge button:hover{border-color:#1b1b19}
+.kf-werkzeuge button[aria-pressed=true]{border-style:solid;border-color:#1b1b19;background:#f3f2ee}
+.kf-werkzeuge button:focus-visible{outline:3px solid #2f6f8a;outline-offset:2px}
+.kf-schritte{display:flex;gap:4px;list-style:none;margin:8px 0 0;padding:0;font-size:12px;color:#6b6a63}
+.kf-schritte li{flex:1;border-top:4px solid #e3e1da;padding-top:4px}
+.kf-schritte li.fertig{border-color:#2d8a3e;color:#1b1b19}
+.kf-schritte li.jetzt{border-color:#1e3a8a;color:#1e3a8a;font-weight:700}
+@media (prefers-reduced-motion:no-preference){.kf-schritte li.jetzt{animation:kf-puls 1.4s ease-in-out infinite}@keyframes kf-puls{50%{border-color:#93c5fd}}}
 .kf-box{background:#f6f5f1;border-radius:10px;padding:10px 12px;margin-top:10px;font-size:14px}
 .kf-box del{color:#8a1c1c}.kf-box ins{color:#1d5a2a;text-decoration:none;font-weight:600}
 .kf-farbe{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -159,9 +170,9 @@
           ${wahl.map(([k, t]) => `<label><input type="radio" name="kf-art" value="${k}"${neu.art === k ? " checked" : ""}><span aria-hidden="true">${symbol[k]}</span>${t}</label>`).join("")}
         </fieldset>
         <p class="kf-hinweis">${esc(HINWEIS[neu.art])}</p>
-        <div class="kf-zeile">
-          ${neu.art === "text" ? `<button type="button" class="kf-btn" data-aktion="text-aendern">Text auf der Seite ändern</button>` : ""}
-          <button type="button" class="kf-btn hell" data-aktion="markieren">${neu.stelle ? "Andere Stelle markieren" : "Stelle auf der Seite markieren"}</button>
+        <div class="kf-arten kf-werkzeuge" role="group" aria-label="Auf der Seite zeigen">
+          ${neu.art === "text" ? `<button type="button" data-aktion="text-aendern" aria-pressed="${d.alter_text != null}"><span aria-hidden="true">✎</span>${d.alter_text != null ? "Anderen Text ändern" : "Text auf der Seite ändern"}</button>` : ""}
+          <button type="button" data-aktion="markieren" aria-pressed="${!!neu.stelle && d.alter_text == null}"><span aria-hidden="true">◎</span>${neu.stelle ? "Andere Stelle markieren" : "Stelle auf der Seite markieren"}</button>
         </div>
         ${d.alter_text != null ? `<div class="kf-box"><b>Textänderung</b><br><del>${esc(d.alter_text)}</del><br>→ <ins>${esc(d.neuer_text)}</ins><div class="kf-zeile"><button type="button" class="kf-btn hell klein" data-aktion="text-weg">Änderung verwerfen</button></div></div>` : ""}
         ${neu.stelle && d.alter_text == null ? `<div class="kf-box">Markierte Stelle: „${esc(neu.stelle.text || neu.stelle.selektor)}“ <button type="button" class="kf-btn hell klein" data-aktion="stelle-weg">entfernen</button></div>` : ""}
@@ -195,7 +206,7 @@
         ${d.alter_text != null ? `<div class="kf-box"><del>${esc(d.alter_text)}</del><br>→ <ins>${esc(d.neuer_text)}</ins></div>` : ""}
         ${d.farbe ? `<div class="kf-box"><span class="kf-tupfer" style="background:${esc(d.farbe)}"></span>${esc(d.farbe)}</div>` : ""}
         ${(w.anhaenge || []).length ? `<div class="kf-fotos">${w.anhaenge.map(a => `<a class="kf-foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
-        ${arbeit}
+        ${KF.schritte(w, "kf-schritte")}${arbeit}
         <div class="kf-meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}${meins && w.status === "offen" ? ` · <button type="button" class="kf-btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen</button>` : ""}</div>
         <div class="kf-k">${ks.map(k => `<div><b>${esc(namen[k.autor] || "")}:</b> ${esc(k.text)}</div>`).join("")}
           <form data-form="kommentar" data-id="${w.id}"><label class="kf-nur" for="kf-k-${w.id}">Antwort zu diesem Wunsch</label>

@@ -193,6 +193,14 @@
     const d = new Date(iso);
     return `voraussichtlich fertig ${d.toDateString() === new Date().toDateString() ? "heute" : "am " + d.toLocaleDateString("de-DE")} gegen ${d.toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })} Uhr`;
   };
+  // Fortschrittsleiste Eingegangen → In Arbeit → Fertig; der aktuelle Schritt pulsiert (CSS je Oberfläche)
+  KF.schritte = (w, klasse) => {
+    const stufe = { offen: 1, in_arbeit: 1, zur_freigabe: 2, erledigt: 3 }[w.status];
+    if (stufe == null) return "";
+    const namen = ["Eingegangen", w.status === "offen" ? "Wird angeschaut …" : "In Arbeit", w.status === "zur_freigabe" ? "Wartet auf Freigabe" : "Fertig"];
+    return `<ol class="${klasse}" aria-label="Bearbeitungsstand">${namen.map((n, i) =>
+      `<li class="${i < stufe ? "fertig" : i === stufe ? "jetzt" : ""}"${i === stufe ? ' aria-current="step"' : ""}>${n}</li>`).join("")}</ol>`;
+  };
   KF.waechterText = a => {
     if (!a || a.modus === "aus") return { aktiv: false, text: "Automatik aus – die Agentur bearbeitet eure Wünsche." };
     if (!a.letzter_lauf) return { aktiv: false, text: "Automatik eingerichtet, aber noch nicht gestartet." };

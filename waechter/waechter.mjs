@@ -89,13 +89,23 @@ async function umsetzen(p, projekt, modus, w, namen, meineId) {
   const verlauf = ok(await sb.from("kommentare").select("*").eq("wunsch_id", w.id).order("erstellt_am"));
   const kurz = w.id.slice(0, 8);
   log(`[${p.slug}] Wunsch ${kurz}: ${w.text.slice(0, 60)}`);
+  // Sofort zeigen, dass jemand dran ist – die Schätzung dauert oft eine halbe Minute
+  await aendern(w.id, { status: "in_arbeit", bearbeiter: NAME, fortschritt: "Schaut sich den Wunsch an und schätzt den Aufwand", fertig_bis: null });
   rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
   const fotos = await fotosHolen(p, w, kurz);
 
   // 1. Aufwand schätzen (nur lesen)
-  const s = await claude(`Schätze, wie viele Minuten die Umsetzung dieses Wunsches in diesem Projekt dauert (inkl. Prüfen).
+  let s;
+  try {
+    s = await claude(`Schätze, wie viele Minuten die Umsetzung dieses Wunsches in diesem Projekt dauert (inkl. Prüfen).
 Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${wunschText(w, verlauf, namen, fotos)}`,
-    { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 0.5, systemzusatz: SYSTEM });
+      { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 0.5, systemzusatz: SYSTEM });
+  } catch (e) {
+    rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
+    await aendern(w.id, { status: "offen", bearbeiter: "Agentur", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null });
+    log(`[${p.slug}] ${kurz} Schätzung fehlgeschlagen, an Agentur: ${e.message}`);
+    return;
+  }
   if (s.rueckfrage) {
     rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
     await aendern(w.id, { status: "rueckfrage", bearbeiter: NAME, fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null });
@@ -222,7 +232,18 @@ async function runde(meineId) {
 const anmeldung = ok(await sb.auth.signInWithPassword({ email: ENV.KF_EMAIL, password: ENV.KF_PASSWORT }));
 const meineId = anmeldung.user.id;
 log(`Wächter gestartet als ${ENV.KF_EMAIL}, prüft alle ${INTERVALL / 1000} s. Beenden mit Strg+C.`);
-let läuft = false;
-const takt = async () => { if (läuft) return; läuft = true; try { await runde(meineId); } finally { läuft = false; } };
+let läuft = false, nochmal = false;
+const takt = async () => {
+  if (läuft) { nochmal = true; return; }
+  läuft = true;
+  try { do { nochmal = false; await runde(meineId); } while (nochmal); } finally { läuft = false; }
+};
 await takt();
 setInterval(takt, INTERVALL);
+// Neue Wünsche und Kundenantworten sofort aufgreifen statt bis zur nächsten Runde zu warten
+let anstoss;
+const sofort = () => { clearTimeout(anstoss); anstoss = setTimeout(takt, 1500); };
+sb.channel("waechter")
+  .on("postgres_changes", { event: "INSERT", schema: "public", table: "wuensche" }, sofort)
+  .on("postgres_changes", { event: "INSERT", schema: "public", table: "kommentare" }, sofort)
+  .subscribe(s => log("Live-Verbindung:", s));

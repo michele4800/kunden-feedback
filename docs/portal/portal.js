@@ -121,6 +121,7 @@
     const arbeit = w.status === "in_arbeit"
       ? `<div class="arbeit">${esc(w.bearbeiter || "Agentur")} arbeitet daran${w.fertig_bis ? " – " + esc(KF.restzeit(w.fertig_bis)) : ""}${w.fortschritt ? "<br>" + esc(w.fortschritt) : ""}</div>`
       : w.fortschritt ? `<div class="arbeit">${esc(w.fortschritt)}</div>` : "";
+    const stand = KF.schritte(w, "schritte");
     const seite = w.seite_url ? `<a href="${esc(w.seite_url)}" target="_blank" rel="noopener">${esc(w.seite_titel || w.seite_url)}<span class="nur-vorleser"> (neues Fenster)</span></a>` : "allgemein";
     return `<li class="w" id="w-${w.id}">
       <div class="w-kopf"><span class="status ${w.status}">${esc(KF.STATUS[w.status] || w.status)}${w.status === "zur_freigabe" && w.freigegeben ? " – freigegeben" : ""}</span>
@@ -130,7 +131,7 @@
       ${(w.details || {}).alter_text != null ? `<div class="box"><b>Textänderung</b><br><del>${esc(w.details.alter_text)}</del><br>→ <ins>${esc(w.details.neuer_text)}</ins></div>` : ""}
       ${(w.details || {}).farbe ? `<div class="box"><span class="tupfer" style="background:${esc(w.details.farbe)}"></span>Farbe ${esc(w.details.farbe)}</div>` : ""}
       ${(w.anhaenge || []).length ? `<div class="fotos">${w.anhaenge.map(a => `<a class="foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
-      ${arbeit}
+      ${stand}${arbeit}
       <div class="meta">Seite: ${seite}${w.stelle ? ` · Stelle: „${esc(w.stelle.text || w.stelle.selektor)}“` : ""}
         ${(w.autor === ich.id && w.status === "offen") || rolle === "agentur" ? ` · <button class="btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen<span class="nur-vorleser"> – Wunsch „${esc(w.text.slice(0, 40))}“</span></button>` : ""}</div>
       ${ag ? `<div class="agentur">
