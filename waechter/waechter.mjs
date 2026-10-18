@@ -10,7 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { execFileSync } from "node:child_process";
 import { claude as claudeRoh, SYSTEM, SCHEMA_SCHAETZUNG, SCHEMA_ERGEBNIS, wunschText } from "./claude.mjs";
 import { bildHinweis, fotosAblegen } from "./fotos.mjs";
-import { readFileSync, existsSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -35,7 +35,12 @@ const ZAEHLER = path.join(HIER, ".heute.json");
 const claude = (prompt, o) => claudeRoh(prompt, { ...o, befehl: CLAUDE, maxMinuten: KONF.max_minuten || 30 });
 
 const sb = createClient(ENV.KF_URL, ENV.KF_SCHLUESSEL, { auth: { persistSession: false, autoRefreshToken: true } });
-const log = (...a) => console.log(new Date().toLocaleTimeString("de-DE"), ...a);
+const LOGBUCH = path.join(HIER, "waechter.log");
+const log = (...a) => {
+  const z = [new Date().toLocaleString("de-DE"), ...a].join(" ");
+  console.log(z);
+  try { appendFileSync(LOGBUCH, z + "\n"); } catch (e) {}
+};
 const ok = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
 function heuteZaehlen(plus = 0) {
@@ -99,7 +104,7 @@ async function umsetzen(p, projekt, modus, w, namen, meineId) {
   try {
     s = await claude(`Schätze, wie viele Minuten die Umsetzung dieses Wunsches in diesem Projekt dauert (inkl. Prüfen).
 Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${wunschText(w, verlauf, namen, fotos)}`,
-      { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 0.5, systemzusatz: SYSTEM });
+      { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 1, systemzusatz: SYSTEM });
   } catch (e) {
     rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
     await aendern(w.id, { status: "offen", bearbeiter: "Agentur", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null });

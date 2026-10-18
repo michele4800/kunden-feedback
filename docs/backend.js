@@ -197,7 +197,8 @@
   KF.schritte = (w, klasse) => {
     const stufe = { offen: 1, in_arbeit: 1, zur_freigabe: 2, erledigt: 3 }[w.status];
     if (stufe == null) return "";
-    const namen = ["Eingegangen", w.status === "offen" ? "Wird angeschaut …" : "In Arbeit", w.status === "zur_freigabe" ? "Wartet auf Freigabe" : "Fertig"];
+    const beiAgentur = w.status === "offen" && w.bearbeiter === "Agentur";
+    const namen = ["Eingegangen", beiAgentur ? "Liegt bei der Agentur" : w.status === "offen" ? "Wird angeschaut …" : "In Arbeit", w.status === "zur_freigabe" ? "Wartet auf Freigabe" : "Fertig"];
     return `<ol class="${klasse}" aria-label="Bearbeitungsstand">${namen.map((n, i) =>
       `<li class="${i < stufe ? "fertig" : i === stufe ? "jetzt" : ""}"${i === stufe ? ' aria-current="step"' : ""}>${n}</li>`).join("")}</ol>`;
   };
