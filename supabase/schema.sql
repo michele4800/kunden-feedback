@@ -289,3 +289,6 @@ begin
     begin alter publication supabase_realtime add table public.automatik;  exception when duplicate_object then null; end;
   end if;
 end $$;
+
+-- Schnittstelle sofort über neue Spalten informieren
+notify pgrst, 'reload schema';
