@@ -1,6 +1,6 @@
 // Kunden-Portal: alle Wünsche eines Projekts, Fragen, Freigabe und Export.
 (async function () {
-  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261019b"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
+  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261019c"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
   const KF = window.KundenFeedback, esc = KF.esc, be = await KF.backend();
@@ -106,6 +106,8 @@
       (filter.status === "alle" || (filter.status === "aktiv" ? AKTIV.includes(w.status) : w.status === filter.status)) &&
       (!filter.seite || (w.seite_titel || w.seite_url) === filter.seite) &&
       (!filter.suche || w.text.toLowerCase().includes(filter.suche.toLowerCase())));
+    // Erledigte bzw. nicht umgesetzte Wünsche, die nur der Status-Filter „Alle aktiven“ verbirgt
+    const ausgeblendet = filter.status === "aktiv" ? wuensche.filter(w => !AKTIV.includes(w.status)).length : 0;
     return `<div class="filter">
         <div><label for="f-status">Status</label><select id="f-status" data-filter="status">
           ${[["aktiv", "Alle aktiven"], ["alle", "Alle"], ...Object.entries(KF.STATUS)].map(([v, t]) => `<option value="${v}"${filter.status === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>
@@ -113,7 +115,8 @@
           ${seiten.map(s => `<option${filter.seite === s ? " selected" : ""}>${esc(s)}</option>`).join("")}</select></div>
         <div><label for="f-suche">Suchen</label><input id="f-suche" type="search" data-filter="suche" value="${esc(filter.suche)}"></div>
       </div>
-      <ul class="liste">${liste.length ? liste.map(w => wunsch(w, kommentare.filter(k => k.wunsch_id === w.id))).join("") : `<li class="leer">Keine Wünsche für diese Auswahl.</li>`}</ul>`;
+      <ul class="liste">${liste.length ? liste.map(w => wunsch(w, kommentare.filter(k => k.wunsch_id === w.id))).join("") : `<li class="leer">${filter.status === "aktiv" ? "Gerade ist nichts offen." : "Keine Wünsche für diese Auswahl."}</li>`}</ul>
+      ${ausgeblendet ? `<p class="leer"><button class="btn hell klein" data-aktion="alle-zeigen">${ausgeblendet === 1 ? "1 erledigter Wunsch ist" : ausgeblendet + " erledigte Wünsche sind"} ausgeblendet – anzeigen</button></p>` : ""}`;
   }
 
   function wunsch(w, ks) {
@@ -215,6 +218,7 @@
     try {
       if (t.dataset.reiter) { reiter = t.dataset.reiter; return zeichnen(); }
       const a = t.dataset.aktion, id = t.dataset.id;
+      if (a === "alle-zeigen") { filter.status = "alle"; return zeichnen(); }
       if (a === "loeschen" && confirm("Diesen Wunsch löschen?")) { await be.wunschLoeschen(id); await zeichnen(); }
       if (a === "freigeben") { await be.wunschAendern(id, { freigegeben: true, fortschritt: "Freigegeben – wird veröffentlicht" }); await zeichnen(); }
       if (["kopieren", "md", "json"].includes(a)) {
