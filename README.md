@@ -16,7 +16,8 @@ Kunde (Website + Widget) ──► Supabase (EU) ◄── Portal (Kunde & Agent
 
 | Ordner | Inhalt |
 |---|---|
-| `docs/feedback.js` | **Widget** für jede Kunden-Website: Knopf „Wünsche“, Anmeldung, Werkzeuge (siehe unten), Verlauf, Live-Status |
+| `docs/feedback.js` | Kleiner **Lader** für jede Kunden-Website, holt immer die aktuelle `widget.js` |
+| `docs/widget.js` | **Widget**: Knopf „Wünsche“, Anmeldung, Werkzeuge (siehe unten), Verlauf, Live-Status |
 | `docs/portal/` | **Portal**: alle Wünsche mit Filter, Status, Restzeit, Antworten, Fragen, Freigabe, Export für Claude |
 | `docs/backend.js` | Gemeinsame Schicht für Supabase und den Demo-Modus |
 | `docs/konfig.js` | Supabase-Adresse und öffentlicher Schlüssel (leer = Demo-Modus) |
