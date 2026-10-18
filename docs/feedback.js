@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261018d";
+  const V = "20261019a";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -32,6 +32,43 @@
     const leer = () => ({ art: "sonstiges", text: "", stelle: null, details: {}, dateien: [], wichtig: 2 });
     let neu = leer();
 
+    // ---------- Neue Version der Seite erkennen ----------
+    // Vergleicht, was der Browser zwischengespeichert hat, mit dem Stand auf dem Server (Seite + eigene Stylesheets).
+    const GELADEN = Date.now();
+    let neueVersion = false, wacht = false;
+    const dateien = () => [location.href.split("#")[0], ...[...document.querySelectorAll('link[rel="stylesheet"], script[src]')]
+      .map(e => e.href || e.src).filter(u => u && new URL(u).origin === location.origin && !u.startsWith(BASIS))];
+    async function abdruck(cache) {
+      const texte = await Promise.all(dateien().map(u => fetch(u, { cache }).then(r => r.ok ? r.text() : "").catch(() => "")));
+      let h = 5381; for (const c of texte.join("\u0000")) h = (h * 33 + c.charCodeAt(0)) >>> 0;
+      return h;
+    }
+    // Fingerabdruck dessen, was beim Laden angezeigt wurde (kommt aus demselben Browser-Cache wie die Seite)
+    const angezeigt = abdruck("default");
+    async function vergleichen() {
+      if (neueVersion) return true;
+      const [alt, neuStand] = await Promise.all([angezeigt, abdruck("no-store")]);
+      if (alt !== neuStand) { neueVersion = true; leisteZeigen(); if (offen) zeichnen(); }
+      return neueVersion;
+    }
+    // Nach einem erledigten Wunsch bis zu 6 Minuten alle 15 s nachsehen, bis die Änderung online ist
+    async function versionAbwarten() {
+      if (wacht || neueVersion) return;
+      wacht = true;
+      for (let i = 0; i < 24 && !(await vergleichen()); i++) await new Promise(ok => setTimeout(ok, 15000));
+      wacht = false;
+    }
+    async function neuLaden() {
+      await Promise.all(dateien().map(u => fetch(u, { cache: "reload" }).catch(() => {})));
+      location.reload();
+    }
+    const leiste = document.createElement("div");
+    leiste.className = "kf-neu-leiste"; leiste.setAttribute("role", "status"); leiste.hidden = true;
+    leiste.innerHTML = `<span>Eure Änderung ist online.</span><button type="button" class="kf-btn klein">Seite neu laden</button>`;
+    leiste.querySelector("button").addEventListener("click", neuLaden);
+    function leisteZeigen() { leiste.hidden = false; }
+    setTimeout(vergleichen, 3000);
+
     const HINWEIS = {
       text: "Klicke auf „Text auf der Seite ändern“ und schreib den Text direkt um. Wir sehen genau, was vorher und nachher dasteht.",
       foto: "Häng eure Fotos an und markiere am besten das Foto auf der Seite, das ersetzt werden soll.",
@@ -45,6 +82,10 @@
     css.textContent = `
 .kf-knopf{position:fixed;right:16px;bottom:16px;z-index:2147483000;font:600 15px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#1b1b19;color:#fff;border:0;border-radius:999px;padding:13px 18px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.28);display:flex;gap:8px;align-items:center}
 .kf-knopf:focus-visible,.kf *:focus-visible,.kf-markieren button:focus-visible{outline:3px solid #2f6f8a;outline-offset:2px}
+.kf-neu-leiste{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483000;display:flex;gap:12px;align-items:center;background:#065f46;color:#fff;font:600 15px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;padding:10px 12px 10px 18px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.28);max-width:calc(100vw - 32px)}
+.kf-neu-leiste[hidden]{display:none}
+.kf-neu-leiste .kf-btn,.kf-neu .kf-btn{background:#fff;color:#065f46;border-color:#fff}
+.kf-neu{background:#065f46;color:#fff;border-radius:10px;padding:12px 14px;margin:0 0 12px;display:flex;gap:12px;align-items:center;justify-content:space-between;font-weight:600}
 .kf-zahl{background:#f2c14e;color:#1b1b19;border-radius:999px;padding:2px 7px;font-size:12px}
 .kf{position:fixed;inset:0 0 0 auto;margin:0 0 0 auto;width:min(460px,100vw);max-width:100vw;height:100dvh;max-height:100dvh;border:0;padding:0;background:#fff;color:#1b1b19;font:400 15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;box-shadow:-10px 0 30px rgba(0,0,0,.2);z-index:2147483001}
 .kf::backdrop{background:rgba(0,0,0,.35)}
@@ -130,7 +171,7 @@
     knopf.textContent = "Wünsche";
     const dlg = document.createElement("dialog");
     dlg.className = "kf"; dlg.setAttribute("aria-labelledby", "kf-titel");
-    document.body.append(knopf, dlg);
+    document.body.append(knopf, dlg, leiste);
     const öffnen = () => { if (!dlg.open) dlg.showModal(); offen = true; return zeichnen().catch(fehlerZeigen); };
     const fehlerZeigen = e => { console.error(e); dlg.innerHTML = rahmen("Wünsche", "", `<p>Das Fenster konnte nicht geladen werden. Bitte die Seite neu laden.</p><button type="button" class="kf-btn" onclick="location.reload()">Seite neu laden</button>`); };
     knopf.addEventListener("click", öffnen);
@@ -141,17 +182,22 @@
       <button type="button" class="kf-zu" data-aktion="schliessen" aria-label="Schließen">×</button></div><div class="kf-rumpf">${inhalt}</div></div>`;
 
     // ---------- Ansichten ----------
+    let zeichnenNr = 0;
     async function zeichnen() {
+      const nr = ++zeichnenNr;  // nur der jüngste Aufruf darf zeichnen – ein älterer, langsamerer würde neuere Daten überschreiben
       const s = await be.sitzung();
       if (!s) return anmeldung();
       projekt = projekt || await be.projekt(SLUG);
       if (!projekt) { dlg.innerHTML = rahmen("Wünsche", "", `<p>Für dieses Konto ist hier kein Projekt freigegeben.</p><button class="kf-btn hell" data-aktion="abmelden">Abmelden</button>`); return; }
       const [mitglieder, wuensche, kommentare, auto] = await Promise.all([be.mitglieder(projekt.id), be.wuensche(projekt.id), be.kommentare(projekt.id), be.automatik(projekt.id)]);
+      if (nr !== zeichnenNr) return;
       namen = Object.fromEntries(mitglieder.map(m => [m.user_id, m.anzeigename || (m.rolle === "agentur" ? "Agentur" : "Kunde")]));
       const hier = wuensche.filter(w => urlPfad(w.seite_url) === SEITE);
       const w8 = KF.waechterText(auto);
+      if (wuensche.some(w => w.status === "erledigt" && Date.parse(w.geaendert_am) > GELADEN)) versionAbwarten();
       const scroll = dlg.querySelector(".kf-rumpf")?.scrollTop || 0;
       dlg.innerHTML = rahmen("Wünsche zu dieser Seite", esc(projekt.name) + " · " + esc(namen[s.user.id] || s.user.email), `
+        ${neueVersion ? `<div class="kf-neu" role="status"><span>Eure Änderung ist online.</span><button type="button" class="kf-btn klein" data-aktion="neu-laden">Seite neu laden</button></div>` : ""}
         ${be.istDemo ? `<p class="kf-demo">Demo-Modus: Daten bleiben nur in diesem Browser.</p>` : ""}
         <p class="kf-waechter"><span class="kf-punkt${w8.aktiv ? " an" : ""}"></span>${esc(w8.text)}</p>
         ${formular()}
@@ -314,6 +360,7 @@
       if (a === "text-weg") { delete neu.details.alter_text; delete neu.details.neuer_text; neu.stelle = null; zeichnen(); }
       if (a === "farbe-weg") { delete neu.details.farbe; zeichnen(); }
       if (a === "foto-weg") { const f = neu.dateien.splice(+t.dataset.i, 1)[0]; if (vorschauUrls.has(f)) { URL.revokeObjectURL(vorschauUrls.get(f)); vorschauUrls.delete(f); } zeichnen(); }
+      if (a === "neu-laden") return neuLaden();
       if (a === "markieren") auswaehlen(false);
       if (a === "text-aendern") auswaehlen(true);
       if (a === "pipette") {
