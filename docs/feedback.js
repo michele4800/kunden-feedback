@@ -13,7 +13,9 @@
   const PORTAL = skript.dataset.portal || BASIS + "portal/";
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
-  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
+  // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
+  const V = "20261018c";
+  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
     await laden(BASIS + "konfig.js");
@@ -129,7 +131,8 @@
     const dlg = document.createElement("dialog");
     dlg.className = "kf"; dlg.setAttribute("aria-labelledby", "kf-titel");
     document.body.append(knopf, dlg);
-    const öffnen = () => { if (!dlg.open) dlg.showModal(); offen = true; return zeichnen(); };
+    const öffnen = () => { if (!dlg.open) dlg.showModal(); offen = true; return zeichnen().catch(fehlerZeigen); };
+    const fehlerZeigen = e => { console.error(e); dlg.innerHTML = rahmen("Wünsche", "", `<p>Das Fenster konnte nicht geladen werden. Bitte die Seite neu laden.</p><button type="button" class="kf-btn" onclick="location.reload()">Seite neu laden</button>`); };
     knopf.addEventListener("click", öffnen);
     dlg.addEventListener("close", () => { offen = false; pinsEntfernen(); });
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });

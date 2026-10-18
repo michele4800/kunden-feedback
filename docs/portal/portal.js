@@ -1,6 +1,6 @@
 // Kunden-Portal: alle Wünsche eines Projekts, Fragen, Freigabe und Export.
 (async function () {
-  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
+  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261018c"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
   const KF = window.KundenFeedback, esc = KF.esc, be = await KF.backend();
