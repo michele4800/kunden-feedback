@@ -126,7 +126,7 @@
         <span class="meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}</span></div>
       <p class="text">${esc(w.text)}</p>${arbeit}
       <div class="meta">Seite: ${seite}${w.stelle ? ` · Stelle: „${esc(w.stelle.text || w.stelle.selektor)}“` : ""}
-        ${w.autor === ich.id && w.status === "offen" ? ` · <button class="btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen</button>` : ""}</div>
+        ${(w.autor === ich.id && w.status === "offen") || rolle === "agentur" ? ` · <button class="btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen<span class="nur-vorleser"> – Wunsch „${esc(w.text.slice(0, 40))}“</span></button>` : ""}</div>
       ${ag ? `<div class="agentur">
         <div><label for="s-${w.id}">Status</label><select id="s-${w.id}" data-feld="status" data-id="${w.id}">${Object.entries(KF.STATUS).map(([v, t]) => `<option value="${v}"${w.status === v ? " selected" : ""}>${t}</option>`).join("")}</select></div>
         <div><label for="b-${w.id}">Bearbeiter</label><input id="b-${w.id}" type="text" data-feld="bearbeiter" data-id="${w.id}" value="${esc(w.bearbeiter)}"></div>
