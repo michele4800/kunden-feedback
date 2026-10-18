@@ -96,6 +96,8 @@
 .kf-neu{background:#065f46;color:#fff;border-radius:10px;padding:12px 14px;margin:0 0 12px;display:flex;gap:12px;align-items:center;justify-content:space-between;font-weight:600}
 .kf-zahl{background:#f2c14e;color:#1b1b19;border-radius:999px;padding:2px 7px;font-size:12px}
 .kf{position:fixed;inset:0 0 0 auto;margin:0 0 0 auto;width:min(460px,100vw);max-width:100vw;height:100dvh;max-height:100dvh;border:0;padding:0;background:#fff;color:#1b1b19;font:400 15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif;box-shadow:-10px 0 30px rgba(0,0,0,.2);z-index:2147483001}
+.kf{overflow:hidden}
+.kf-rumpf{scrollbar-width:thin;overscroll-behavior:contain}
 .kf::backdrop{background:rgba(0,0,0,.35)}
 .kf-innen{display:flex;flex-direction:column;height:100%}
 .kf-kopf{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:16px 18px;border-bottom:1px solid #e3e1da}
@@ -181,10 +183,12 @@
     const dlg = document.createElement("dialog");
     dlg.className = "kf"; dlg.setAttribute("aria-labelledby", "kf-titel");
     document.body.append(knopf, dlg, leiste);
-    const öffnen = () => { if (!dlg.open) dlg.showModal(); offen = true; return zeichnen().catch(fehlerZeigen); };
+    // Solange das Fenster offen ist, scrollt nur sein Inhalt – nicht zusätzlich die Seite dahinter
+    let seitenUeberlauf = "";
+    const öffnen = () => { if (!dlg.open) { seitenUeberlauf = document.documentElement.style.overflow; document.documentElement.style.overflow = "hidden"; dlg.showModal(); } offen = true; return zeichnen().catch(fehlerZeigen); };
     const fehlerZeigen = e => { console.error(e); dlg.innerHTML = rahmen("Wünsche", "", `<p>Das Fenster konnte nicht geladen werden. Bitte die Seite neu laden.</p><button type="button" class="kf-btn" onclick="location.reload()">Seite neu laden</button>`); };
     knopf.addEventListener("click", öffnen);
-    dlg.addEventListener("close", () => { offen = false; pinsEntfernen(); });
+    dlg.addEventListener("close", () => { offen = false; document.documentElement.style.overflow = seitenUeberlauf; pinsEntfernen(); });
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
 
     const rahmen = (titel, unter, inhalt) => `<div class="kf-innen"><div class="kf-kopf"><div><h2 id="kf-titel">${titel}</h2>${unter ? `<small>${unter}</small>` : ""}</div>
