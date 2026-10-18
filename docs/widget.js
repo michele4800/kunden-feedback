@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261019b";
+  const V = "20261019c";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -31,6 +31,10 @@
     // Entwurf des neuen Wunsches – bleibt erhalten, während der Kunde auf der Seite markiert oder Text ändert
     const leer = () => ({ art: "sonstiges", text: "", stelle: null, details: {}, dateien: [], wichtig: 2 });
     let neu = leer();
+    // Gesammelte Wünsche (noch nicht abgeschickt) – im Browser gespeichert, damit sie Seitenwechsel überstehen
+    const SAMMEL = "kf-liste-" + SLUG;
+    const sammlung = () => { try { return JSON.parse(localStorage.getItem(SAMMEL) || "[]"); } catch (e) { return []; } };
+    const sammlungSetzen = l => { try { localStorage.setItem(SAMMEL, JSON.stringify(l)); } catch (e) { throw new Error("Die Liste konnte in diesem Browser nicht gespeichert werden – bitte einzeln absenden."); } };
 
     // ---------- Neue Version der Seite erkennen ----------
     // Vergleicht, was der Browser zwischengespeichert hat, mit dem Stand auf dem Server (Seite + eigene Stylesheets).
@@ -90,6 +94,11 @@
 .kf-linie span{position:absolute;white-space:nowrap;background:#e11d48;color:#fff;font:600 12px/1.3 system-ui,sans-serif;padding:2px 6px;border-radius:4px}
 .kf-linie.senk span{left:4px}
 .kf-linie.waag span{left:8px;top:4px}
+.kf-sammel{border:2px solid #1b1b19;border-radius:12px;padding:12px 14px;margin:6px 0 14px;background:#fbfaf7}
+.kf-sammel h3{margin:0 0 2px;font-size:16px}
+.kf-sammel ol{margin:8px 0 12px;padding-left:20px}
+.kf-sammel li{display:flex;justify-content:space-between;gap:8px;align-items:flex-start;padding:6px 0;border-bottom:1px solid #e3e1da}
+.kf-sammel li small{display:block;color:#5c5a54}
 .kf-neu-leiste{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483000;display:flex;gap:12px;align-items:center;background:#065f46;color:#fff;font:600 15px/1.3 system-ui,-apple-system,"Segoe UI",sans-serif;padding:10px 12px 10px 18px;border-radius:999px;box-shadow:0 6px 20px rgba(0,0,0,.28);max-width:calc(100vw - 32px)}
 .kf-neu-leiste[hidden]{display:none}
 .kf-neu-leiste .kf-btn,.kf-neu .kf-btn{background:#fff;color:#065f46;border-color:#fff}
@@ -213,6 +222,7 @@
         ${neueVersion ? `<div class="kf-neu" role="status"><span>Eure Änderung ist online.</span><button type="button" class="kf-btn klein" data-aktion="neu-laden">Seite neu laden</button></div>` : ""}
         ${be.istDemo ? `<p class="kf-demo">Demo-Modus: Daten bleiben nur in diesem Browser.</p>` : ""}
         <p class="kf-waechter"><span class="kf-punkt${w8.aktiv ? " an" : ""}"></span>${esc(w8.text)}</p>
+        ${sammelBox()}
         ${formular()}
         <h3>Bisherige Wünsche hier (${hier.length})</h3>
         <ul class="kf-liste">${hier.length ? hier.map((w, i) => karte(w, i + 1, kommentare.filter(k => k.wunsch_id === w.id), s.user.id)).join("") : `<li class="kf-hinweis">Zu dieser Seite gibt es noch keine Wünsche.</li>`}</ul>
@@ -222,6 +232,38 @@
       vorschauenLaden(); anhaengeLaden(hier);
       pinsZeigen(hier);
       if (!stopp) stopp = be.beobachten(projekt.id, () => { if (offen && !tippt()) zeichnen(); zaehlen(); });
+    }
+
+    function sammelBox() {
+      const l = sammlung();
+      if (!l.length) return "";
+      return `<section class="kf-sammel" aria-labelledby="kf-sammel-titel"><h3 id="kf-sammel-titel">Eure Liste (${l.length})</h3>
+        <p class="kf-hinweis">Noch nicht abgeschickt. Ihr könnt auf anderen Seiten weitersammeln.</p>
+        <ol>${l.map((e, i) => `<li><span><span class="kf-etikett">${esc(KF.ARTEN[e.art] || "Sonstiges")}</span>${esc(e.text.slice(0, 90))}${e.anhaenge.length ? ` · ${e.anhaenge.length} Foto${e.anhaenge.length > 1 ? "s" : ""}` : ""}
+          <small>${esc((e.seite_titel || "").split(/ [|–-] /)[0].trim().slice(0, 50))}</small></span>
+          <button type="button" class="kf-btn hell klein" data-aktion="liste-weg" data-i="${i}" aria-label="Eintrag ${i + 1} entfernen">×</button></li>`).join("")}</ol>
+        <button type="button" class="kf-btn" data-aktion="liste-senden">${l.length === 1 ? "Wunsch absenden" : `Alle ${l.length} Wünsche zusammen absenden`}</button>
+        <p class="kf-fehler" role="alert" data-sammel-fehler></p></section>`;
+    }
+
+    // Liste abschicken: als Paket (gemeinsame Kennung), damit der Wächter alles in einem Durchgang umsetzt.
+    // Jeder gesendete Eintrag wird sofort aus der Liste genommen – bricht etwas ab, wird nichts doppelt geschickt.
+    async function sammlungSenden(knopf) {
+      const l = sammlung();
+      if (!l.length) return;
+      knopf.disabled = true; knopf.textContent = "Wird gesendet …";
+      const paket = l.length > 1 ? (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)) : null;
+      try {
+        for (const [i, e] of l.entries()) {
+          await be.wunschAnlegen({ projekt_id: projekt.id, ...e, details: paket ? { ...e.details, paket, paket_nr: i + 1, paket_anzahl: l.length } : e.details });
+          sammlungSetzen(sammlung().slice(1));
+        }
+      } catch (err) {
+        const f = dlg.querySelector("[data-sammel-fehler]"); if (f) f.textContent = err.message || "Senden fehlgeschlagen.";
+        knopf.disabled = false; return;
+      }
+      await zeichnen(); zaehlen();
+      const ziel = dlg.querySelector(".kf-liste"); if (ziel) ziel.scrollIntoView({ block: "start" });
     }
 
     function formular() {
@@ -254,7 +296,12 @@
         <fieldset class="kf-wichtig"><legend>Wie wichtig?</legend>
           ${[[1, "Wichtig"], [2, "Normal"], [3, "Kann warten"]].map(([v, t]) => `<label><input type="radio" name="kf-wichtig" value="${v}"${neu.wichtig === v ? " checked" : ""}>${t}</label>`).join("")}
         </fieldset>
-        <div class="kf-zeile" style="margin-top:16px"><button class="kf-btn" type="submit">Wunsch absenden</button></div>
+        <div class="kf-zeile" style="margin-top:16px">
+          ${sammlung().length
+            ? `<button class="kf-btn" type="submit" value="liste" data-label="Zur Liste hinzufügen">Zur Liste hinzufügen</button><button class="kf-btn hell" type="submit" value="senden" data-label="Einzeln absenden">Einzeln absenden</button>`
+            : `<button class="kf-btn" type="submit" value="senden" data-label="Wunsch absenden">Wunsch absenden</button><button class="kf-btn hell" type="submit" value="liste" data-label="Zur Liste hinzufügen">Zur Liste hinzufügen</button>`}
+        </div>
+        ${sammlung().length ? "" : `<p class="kf-hinweis">Mehrere Wünsche? Sammelt sie in der Liste – auch über mehrere Seiten – und schickt sie zusammen ab. Dann setzen wir alles in einem Durchgang um.</p>`}
         <p class="kf-fehler" role="alert"></p>
       </form>`;
     }
@@ -265,7 +312,7 @@
         ? `<div class="kf-arbeit">${esc(w.bearbeiter || "Agentur")} arbeitet daran${w.fertig_bis ? " – " + esc(KF.restzeit(w.fertig_bis)) : ""}${w.fortschritt ? `<br>${esc(w.fortschritt)}` : ""}</div>`
         : w.fortschritt ? `<div class="kf-arbeit">${esc(w.fortschritt)}</div>` : "";
       return `<li class="kf-w"><span class="kf-status ${w.status}">${w.stelle ? nr + " · " : ""}${esc(KF.STATUS[w.status] || w.status)}</span>
-        ${w.art && w.art !== "sonstiges" ? `<span class="kf-etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="kf-etikett wichtig">Wichtig</span>` : ""}
+        ${w.art && w.art !== "sonstiges" ? `<span class="kf-etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="kf-etikett wichtig">Wichtig</span>` : ""}${d.paket_anzahl > 1 ? `<span class="kf-etikett">Paket ${+d.paket_nr}/${+d.paket_anzahl}</span>` : ""}
         ${w.text ? `<p>${esc(w.text)}</p>` : ""}
         ${d.alter_text != null ? `<div class="kf-box"><del>${esc(d.alter_text)}</del><br>→ <ins>${esc(d.neuer_text)}</ins></div>` : ""}
         ${d.verschiebung ? `<div class="kf-box"><b>Verschiebung:</b> ${esc(KF.verschiebungText(d.verschiebung))}</div>` : ""}
@@ -334,21 +381,26 @@
           await be.anmelden(f.querySelector("#kf-email").value.trim(), f.querySelector("#kf-pw").value);
           projekt = null; await zeichnen(); zaehlen();
         } else if (f.dataset.form === "neu") {
+          const zurListe = (e.submitter && e.submitter.value) === "liste";
           const text = neu.text.trim(), d = { ...neu.details };
           if (!text && d.alter_text == null && !d.verschiebung) { fehler.textContent = neu.art === "text" ? "Bitte zuerst den Text auf der Seite ändern oder eine Beschreibung schreiben." : "Bitte kurz beschreiben, was anders sein soll."; return; }
-          const knopfSenden = f.querySelector("button[type=submit]");
-          knopfSenden.disabled = true; knopfSenden.textContent = neu.dateien.length ? "Fotos werden hochgeladen …" : "Wird gesendet …";
+          const knopf = e.submitter || f.querySelector("button[type=submit]");
+          f.querySelectorAll("button[type=submit]").forEach(b => (b.disabled = true));
+          knopf.textContent = neu.dateien.length ? "Fotos werden hochgeladen …" : zurListe ? "Wird hinzugefügt …" : "Wird gesendet …";
+          // Fotos gleich hochladen – so bleibt ein Listeneintrag auch beim Seitenwechsel vollständig
           const anhaenge = [];
           for (const datei of neu.dateien) anhaenge.push(await be.dateiHochladen(projekt.id, await KF.verkleinern(datei), datei.name));
           if (neu.art !== "design") delete d.farbe;
-          await be.wunschAnlegen({
-            projekt_id: projekt.id, art: neu.art, details: d, anhaenge, prioritaet: neu.wichtig,
+          const eintrag = {
+            art: neu.art, details: d, anhaenge, prioritaet: neu.wichtig,
             text: text || (d.alter_text != null ? `Text ändern: „${String(d.alter_text).slice(0, 80)}“` : `Verschieben: „${(neu.stelle && neu.stelle.text || "").slice(0, 60)}“ – ${KF.verschiebungText(d.verschiebung)}`),
             seite_url: location.origin + location.pathname, seite_titel: document.title.slice(0, 300), stelle: neu.stelle,
-          });
+          };
+          if (zurListe) sammlungSetzen([...sammlung(), eintrag]);
+          else await be.wunschAnlegen({ projekt_id: projekt.id, ...eintrag });
           vorschauUrls.forEach(u => URL.revokeObjectURL(u)); vorschauUrls.clear();
           neu = leer(); await zeichnen(); zaehlen();
-          const liste = dlg.querySelector(".kf-liste"); if (liste) liste.scrollIntoView({ block: "start" });
+          const ziel = dlg.querySelector(zurListe ? ".kf-sammel" : ".kf-liste"); if (ziel) ziel.scrollIntoView({ block: "start" });
         } else if (f.dataset.form === "kommentar") {
           const feld = f.querySelector("input"), text = feld.value.trim();
           if (!text) return;
@@ -356,7 +408,7 @@
         }
       } catch (err) {
         if (fehler) fehler.textContent = err.message; else alert(err.message);
-        const b = f.querySelector("button[type=submit]"); if (b) { b.disabled = false; b.textContent = f.dataset.form === "neu" ? "Wunsch absenden" : b.textContent; }
+        f.querySelectorAll("button[type=submit]").forEach(b => { b.disabled = false; if (b.dataset.label) b.textContent = b.dataset.label; });
       }
     });
 
@@ -377,6 +429,8 @@
       if (a === "farbe-weg") { delete neu.details.farbe; zeichnen(); }
       if (a === "foto-weg") { const f = neu.dateien.splice(+t.dataset.i, 1)[0]; if (vorschauUrls.has(f)) { URL.revokeObjectURL(vorschauUrls.get(f)); vorschauUrls.delete(f); } zeichnen(); }
       if (a === "neu-laden") return neuLaden();
+      if (a === "liste-weg") { const l = sammlung(); l.splice(+t.dataset.i, 1); sammlungSetzen(l); zeichnen(); }
+      if (a === "liste-senden") return sammlungSenden(t);
       if (a === "markieren") auswaehlen("markieren");
       if (a === "text-aendern") auswaehlen("text");
       if (a === "verschieben") auswaehlen("verschieben");

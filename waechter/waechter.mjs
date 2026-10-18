@@ -92,35 +92,46 @@ async function fotosHolen(p, w, kurz) {
   }
   return liste;
 }
-// ---------- Ein Wunsch ----------
-async function umsetzen(p, projekt, modus, w, namen, meineId) {
-  const verlauf = ok(await sb.from("kommentare").select("*").eq("wunsch_id", w.id).order("erstellt_am"));
-  const kurz = w.id.slice(0, 8);
-  log(`[${p.slug}] Wunsch ${kurz}: ${w.text.slice(0, 60)}`);
+// ---------- Ein Wunsch oder ein Paket gesammelter Wünsche (ein Durchlauf, ein Commit) ----------
+async function umsetzen(p, projekt, modus, ws, namen, meineId) {
+  const kurz = ws[0].id.slice(0, 8);
+  const nrVon = new Map(ws.map((w, i) => [w.id, i + 1]));
+  log(`[${p.slug}] ${ws.length > 1 ? `Paket ${kurz} mit ${ws.length} Wünschen` : `Wunsch ${kurz}`}: ${ws.map(w => w.text.slice(0, 40)).join(" | ").slice(0, 160)}`);
   // Sofort zeigen, dass jemand dran ist – die Schätzung dauert oft eine halbe Minute
-  await aendern(w.id, { status: "in_arbeit", bearbeiter: NAME, fortschritt: "Schaut sich den Wunsch an und schätzt den Aufwand", fertig_bis: null });
+  for (const w of ws) await aendern(w.id, { status: "in_arbeit", bearbeiter: NAME, fortschritt: "Schaut sich den Wunsch an und schätzt den Aufwand", fertig_bis: null });
   rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
-  const fotos = await fotosHolen(p, w, kurz);
+  const daten = [];
+  for (const w of ws) {
+    const verlauf = ok(await sb.from("kommentare").select("*").eq("wunsch_id", w.id).order("erstellt_am"));
+    daten.push({ w, verlauf, fotos: await fotosHolen(p, w, w.id.slice(0, 8)) });
+  }
+  const alleFotos = daten.flatMap(d => d.fotos);
+  const texte = (auswahl = daten) => auswahl.map(d => wunschText(d.w, d.verlauf, namen, d.fotos, nrVon.get(d.w.id))).join("\n\n");
+  const leeren = () => rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
+  const anAgentur = async (w, grund) => {
+    await aendern(w.id, { status: "offen", bearbeiter: "Agentur", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null });
+    log(`[${p.slug}] ${w.id.slice(0, 8)} an Agentur: ${grund}`);
+  };
 
   // 1. Aufwand schätzen (nur lesen)
   let s;
   try {
-    s = await claude(`Schätze, wie viele Minuten die Umsetzung dieses Wunsches in diesem Projekt dauert (inkl. Prüfen).
-Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${wunschText(w, verlauf, namen, fotos)}`,
+    s = await claude(`Schätze, wie viele Minuten die Umsetzung ${ws.length > 1 ? "aller dieser Wünsche zusammen" : "dieses Wunsches"} in diesem Projekt dauert (inkl. Prüfen).
+Fehlt bei einem Wunsch eine Information, trage ihn mit nr und Frage in "rueckfragen" ein; sonst bleibt die Liste leer.\n\n${texte()}`,
       { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 1, systemzusatz: SYSTEM });
   } catch (e) {
-    rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
-    await aendern(w.id, { status: "offen", bearbeiter: "Agentur", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null });
-    log(`[${p.slug}] ${kurz} Schätzung fehlgeschlagen, an Agentur: ${e.message}`);
+    leeren();
+    for (const w of ws) await anAgentur(w, `Schätzung fehlgeschlagen: ${e.message}`);
     return;
   }
-  if (s.rueckfrage) {
-    rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
+  const fragen = new Map((s.rueckfragen || []).filter(f => f.frage && ws[f.nr - 1]).map(f => [ws[f.nr - 1].id, f.frage]));
+  for (const w of ws.filter(w => fragen.has(w.id))) {
     await aendern(w.id, { status: "rueckfrage", bearbeiter: NAME, fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null });
-    await kommentieren(w.id, s.rueckfrage);
-    return;
+    await kommentieren(w.id, fragen.get(w.id));
   }
-  await aendern(w.id, { status: "in_arbeit", bearbeiter: NAME, fortschritt: "Wird umgesetzt",
+  const aktiv = daten.filter(d => !fragen.has(d.w.id));
+  if (!aktiv.length) { leeren(); return; }
+  for (const { w } of aktiv) await aendern(w.id, { status: "in_arbeit", bearbeiter: NAME, fortschritt: "Wird umgesetzt",
     fertig_bis: new Date(Date.now() + s.minuten * 60000).toISOString() });
 
   // 2. Umsetzen
@@ -130,86 +141,103 @@ Wenn eine Information fehlt, schreibe die Frage in "rueckfrage", sonst "".\n\n${
   if (zweig !== p.zweig) git(p.ordner, "checkout", "-q", "-B", zweig);
   const werkzeuge = ["Read", "Edit", "Write", "Glob", "Grep", ...(p.bauen ? [`Bash(${p.bauen.join(" ")})`] : [])];
 
-  // „Augen“: Bildschirmfotos der betroffenen Seite vor der Änderung
-  const seite = seitePfad(p, w.seite_url);
-  const knipsen = async (praefix, verschiebung = null) => {
+  // „Augen“: Bildschirmfotos der betroffenen Stellen vor der Änderung (höchstens 4 Wünsche je Paket)
+  const knipsen = async (w, praefix, verschiebung = null) => {
+    const seite = seitePfad(p, w.seite_url);
     if (!seite || !existsSync(path.join(p.ordner, seite))) return [];
-    try { return await ansichten(p, { seite, selektor: (w.stelle || {}).selektor, ziel: `${EINGANG}/ansicht`, praefix, verschiebung }); }
-    catch (e) { log(`[${p.slug}] ${kurz} Bildschirmfoto fehlgeschlagen: ${e.message}`); return []; }
+    try { return await ansichten(p, { seite, selektor: (w.stelle || {}).selektor, ziel: `${EINGANG}/ansicht`, praefix: `${praefix}-w${nrVon.get(w.id)}`, verschiebung }); }
+    catch (e) { log(`[${p.slug}] ${w.id.slice(0, 8)} Bildschirmfoto fehlgeschlagen: ${e.message}`); return []; }
   };
-  const vorher = await knipsen("vorher");
-  // Hat der Kunde etwas auf der Seite verschoben: so soll es ungefähr aussehen
-  const wunschbild = (w.details || {}).verschiebung && w.stelle ? await knipsen("wunsch", w.details.verschiebung) : [];
-  const fotoText = (liste, wann) => liste.length ? `\nBildschirmfotos ${wann} (Desktop und Handy; die rot gestrichelte Linie zeigt nur die vom Kunden markierte Stelle und ist nicht Teil der Seite) – sieh sie dir mit Read an:\n${liste.map(f => `- ${f}`).join("\n")}` : "";
+  const augen = aktiv.slice(0, 4);
+  const vorher = [], wunschbild = [];
+  for (const { w } of augen) {
+    vorher.push(...await knipsen(w, "vorher"));
+    if ((w.details || {}).verschiebung && w.stelle) wunschbild.push(...await knipsen(w, "wunsch", w.details.verschiebung));
+  }
+  const fotoText = (liste, wann) => liste.length ? `\nBildschirmfotos ${wann} (Desktop und Handy; Dateiname -wN = Wunsch N; die rot gestrichelte Linie zeigt nur die vom Kunden markierte Stelle und ist nicht Teil der Seite) – sieh sie dir mit Read an:\n${liste.map(f => `- ${f}`).join("\n")}` : "";
+  const ergebnisAntwort = `Gib in "ergebnisse" für jeden Wunsch (nr) ein Ergebnis an.`;
 
-  let r;
+  // erg: nr → { ergebnis, zusammenfassung, frage }
+  let erg = new Map(), fotosWahl = [];
+  const uebernehmen = r => { for (const e of r.ergebnisse || []) if (aktiv.some(d => nrVon.get(d.w.id) === e.nr)) erg.set(e.nr, e); };
   try {
-    r = await claude(`Setze diesen Wunsch in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""}${fotos.length ? `\n${bildHinweis(p)}` : ""}${fotoText(vorher, "der Seite vor deiner Änderung, so sieht der Kunde sie jetzt")}${fotoText(wunschbild, "mit der Verschiebung des Kunden – so ungefähr wünscht er es sich (nur eine Vorschau, sauber umsetzen)")}\n\n${wunschText(w, verlauf, namen, fotos)}`,
-      { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: KONF.max_budget_usd || 3, systemzusatz: SYSTEM });
-  } catch (e) { r = { ergebnis: "fehler", zusammenfassung: e.message, frage: "" }; }
+    const r = await claude(`Setze ${aktiv.length > 1 ? "diese Wünsche" : "diesen Wunsch"} in diesem Projektordner um.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""} ${ergebnisAntwort}${alleFotos.length ? `\n${bildHinweis(p)}` : ""}${fotoText(vorher, "der Seite vor deiner Änderung, so sieht der Kunde sie jetzt")}${fotoText(wunschbild, "mit der Verschiebung des Kunden – so ungefähr wünscht er es sich (nur eine Vorschau, sauber umsetzen)")}\n\n${texte(aktiv)}`,
+      { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: (KONF.max_budget_usd || 3) * Math.min(aktiv.length, 3), systemzusatz: SYSTEM });
+    uebernehmen(r); fotosWahl = r.fotos || [];
+  } catch (e) { log(`[${p.slug}] ${kurz} Umsetzen fehlgeschlagen: ${e.message}`); }
+  const erledigt = () => aktiv.filter(d => (erg.get(nrVon.get(d.w.id)) || {}).ergebnis === "erledigt");
 
   // Gewählte Fotos ins Projekt übernehmen
-  if (r.ergebnis === "erledigt" && (r.fotos || []).length) {
-    try { await fotosAblegen(p, r.fotos, fotos); } catch (e) { r = { ergebnis: "fehler", zusammenfassung: "Foto konnte nicht übernommen werden: " + e.message, frage: "" }; }
+  if (erledigt().length && fotosWahl.length) {
+    try { await fotosAblegen(p, fotosWahl, alleFotos); } catch (e) { log(`[${p.slug}] ${kurz} Foto nicht übernommen: ${e.message}`); erg = new Map(); }
   }
 
   // Prüfrunden: Ergebnis fotografieren, Claude vergleicht mit vorher und bessert nach (höchstens zwei Runden)
-  for (let runde = 1; r.ergebnis === "erledigt" && vorher.length && runde <= 2; runde++) {
+  for (let runde = 1; erledigt().length && vorher.length && runde <= 2; runde++) {
     try { bauen(p); } catch (e) { break; }
-    const nachher = await knipsen(`nachher${runde}`);
+    const nachher = [];
+    for (const { w } of augen) if (erledigt().some(d => d.w.id === w.id)) nachher.push(...await knipsen(w, `nachher${runde}`));
     if (!nachher.length) break;
-    await aendern(w.id, { fortschritt: "Prüft das Ergebnis auf Desktop und Handy" });
+    for (const { w } of erledigt()) await aendern(w.id, { fortschritt: "Prüft das Ergebnis auf Desktop und Handy" });
     const stand = git(p.ordner, "status", "--porcelain") + git(p.ordner, "diff");
     try {
-      const pr = await claude(`Du hast diesen Wunsch umgesetzt. Prüfe jetzt mit eigenen Augen, ob er erfüllt ist.${fotoText(vorher, "vorher")}${fotoText(wunschbild, "Wunschbild des Kunden (von ihm verschoben)")}${fotoText(nachher, "nach deiner Änderung")}
+      const pr = await claude(`Du hast ${erledigt().length > 1 ? "diese Wünsche" : "diesen Wunsch"} umgesetzt. Prüfe jetzt mit eigenen Augen, ob sie erfüllt sind.${fotoText(vorher, "vorher")}${fotoText(wunschbild, "Wunschbild des Kunden (von ihm verschoben)")}${fotoText(nachher, "nach deiner Änderung")}
 Vergleiche vorher und nachher genau, so wie der Kunde hinsieht (Ausrichtung, Abstände, Lesbarkeit, Desktop UND Handy).
-Ist der Wunsch sichtbar erfüllt und nichts anderes kaputt? Wenn nicht: korrigiere den Code${p.bauen ? ` und führe den Bau aus: ${p.bauen.join(" ")}` : ""}.
-Beschreibe in zusammenfassung nur, was auf den Fotos wirklich zu sehen ist. fotos bleibt leer.\n\n${wunschText(w, verlauf, namen, fotos)}`,
+Ist jeder Wunsch sichtbar erfüllt und nichts anderes kaputt? Wenn nicht: korrigiere den Code${p.bauen ? ` und führe den Bau aus: ${p.bauen.join(" ")}` : ""}.
+${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich zu sehen ist. fotos bleibt leer.\n\n${texte(erledigt())}`,
         { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: KONF.max_budget_usd || 3, systemzusatz: SYSTEM });
-      r = { ...pr, fotos: [] };
+      uebernehmen(pr);
     } catch (e) { log(`[${p.slug}] ${kurz} Prüfrunde ${runde} fehlgeschlagen: ${e.message}`); break; }
-    log(`[${p.slug}] ${kurz} Prüfrunde ${runde}: ${r.ergebnis}`);
+    log(`[${p.slug}] ${kurz} Prüfrunde ${runde}: ${erledigt().length} von ${aktiv.length} erledigt`);
     if (git(p.ordner, "status", "--porcelain") + git(p.ordner, "diff") === stand) break;  // nichts nachgebessert → fertig
   }
-  rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
+  leeren();
 
+  // Sicherheitsnetz: geschützte Dateien, Bau, „nichts geändert“
+  let fehler = "";
   const verboten = geschuetztBeruehrt(p);
-  if (r.ergebnis === "erledigt" && verboten.length) r = { ergebnis: "fehler", zusammenfassung: "Geschützte Dateien geändert: " + verboten.join(", "), frage: "" };
-  if (r.ergebnis === "erledigt") { try { bauen(p); } catch (e) { r = { ergebnis: "fehler", zusammenfassung: "Bau fehlgeschlagen: " + String(e.stderr || e.message).slice(-300), frage: "" }; } }
-  if (r.ergebnis === "erledigt" && sauber(p.ordner)) r = { ergebnis: "rueckfrage", zusammenfassung: "", frage: r.frage || "Ich konnte nichts finden, was ich ändern müsste. Könnt ihr genauer beschreiben, was anders sein soll?" };
+  if (verboten.length) fehler = "Geschützte Dateien geändert: " + verboten.join(", ");
+  if (!fehler && erledigt().length) { try { bauen(p); } catch (e) { fehler = "Bau fehlgeschlagen: " + String(e.stderr || e.message).slice(-300); } }
+  const fertig = fehler ? [] : erledigt();
+  const nichtsGeaendert = fertig.length && sauber(p.ordner);
 
-  if (r.ergebnis !== "erledigt") {
+  if (!fertig.length || nichtsGeaendert) {
     zuruecksetzen(p);
     git(p.ordner, "checkout", "-q", p.zweig);
     if (zweig !== p.zweig) git(p.ordner, "branch", "-D", zweig);
-    if (r.ergebnis === "rueckfrage") {
-      await aendern(w.id, { status: "rueckfrage", fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null });
-      await kommentieren(w.id, r.frage);
-    } else {
-      await aendern(w.id, { status: "offen", bearbeiter: "Agentur", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null });
-      if (r.ergebnis === "nicht_moeglich") await kommentieren(w.id, r.zusammenfassung || "Diesen Wunsch schaut sich die Agentur persönlich an.");
-      log(`[${p.slug}] ${kurz} an Agentur: ${r.zusammenfassung}`);
-    }
-    return;
+  } else {
+    // 3. Festhalten und veröffentlichen – ein Commit für alles Erledigte
+    git(p.ordner, "add", "-A");
+    const titel = fertig.length > 1 ? `Kundenwünsche (${fertig.length}): ${fertig.map(d => d.w.text.replace(/\s+/g, " ").slice(0, 30)).join(" | ")}` : `Kundenwunsch ${kurz}: ${fertig[0].w.text.replace(/\s+/g, " ").slice(0, 60)}`;
+    git(p.ordner, "commit", "-q", "-m", titel.slice(0, 200), "-m", `${fertig.map(d => `- ${(erg.get(nrVon.get(d.w.id)) || {}).zusammenfassung || ""}`).join("\n")}\n\nUmgesetzt vom Wächter (Claude Code).`);
+    if (modus === "direkt") { if (p.veroeffentlichen) git(p.ordner, "push", "-q", "origin", p.zweig); }
+    else git(p.ordner, "checkout", "-q", p.zweig);
+    heuteZaehlen(1);
   }
 
-  // 3. Festhalten und veröffentlichen
-  git(p.ordner, "add", "-A");
-  git(p.ordner, "commit", "-q", "-m", `Kundenwunsch ${kurz}: ${w.text.replace(/\s+/g, " ").slice(0, 60)}`, "-m", `${r.zusammenfassung}\n\nUmgesetzt vom Wächter (Claude Code).`);
-  if (modus === "direkt") {
-    if (p.veroeffentlichen) git(p.ordner, "push", "-q", "origin", p.zweig);
-    await aendern(w.id, { status: "erledigt", fortschritt: p.veroeffentlichen ? "Umgesetzt – in der Vorschau in ca. 1–2 Min. sichtbar" : "Umgesetzt", fertig_bis: null });
-  } else {
-    git(p.ordner, "checkout", "-q", p.zweig);
-    await aendern(w.id, { status: "zur_freigabe", fortschritt: "Umgesetzt – wartet auf Freigabe durch die Agentur", fertig_bis: null });
+  // Status je Wunsch
+  for (const d of aktiv) {
+    const e = erg.get(nrVon.get(d.w.id)) || { ergebnis: "fehler", zusammenfassung: fehler || "keine Antwort", frage: "" };
+    if (fertig.includes(d) && !nichtsGeaendert) {
+      if (modus === "direkt") await aendern(d.w.id, { status: "erledigt", fortschritt: p.veroeffentlichen ? "Umgesetzt – in der Vorschau in ca. 1–2 Min. sichtbar" : "Umgesetzt", fertig_bis: null });
+      else await aendern(d.w.id, { status: "zur_freigabe", details: { ...(d.w.details || {}), zweig }, fortschritt: "Umgesetzt – wartet auf Freigabe durch die Agentur", fertig_bis: null });
+      await kommentieren(d.w.id, e.zusammenfassung);
+    } else if (e.ergebnis === "rueckfrage" || (e.ergebnis === "erledigt" && nichtsGeaendert)) {
+      await aendern(d.w.id, { status: "rueckfrage", fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null });
+      await kommentieren(d.w.id, e.frage || "Ich konnte nichts finden, was ich ändern müsste. Könnt ihr genauer beschreiben, was anders sein soll?");
+    } else {
+      await anAgentur(d.w, fehler || e.zusammenfassung);
+      if (e.ergebnis === "nicht_moeglich") await kommentieren(d.w.id, e.zusammenfassung || "Diesen Wunsch schaut sich die Agentur persönlich an.");
+    }
   }
-  await kommentieren(w.id, r.zusammenfassung);
-  heuteZaehlen(1);
 }
 
+// Freigegebene Umsetzungen veröffentlichen. Ein Paket liegt auf einem gemeinsamen Zweig: die Freigabe gilt für alle seine Wünsche.
 async function freigabenVeroeffentlichen(p, liste) {
-  for (const w of liste.filter(w => w.status === "zur_freigabe" && w.freigegeben)) {
-    const zweig = `wunsch-${w.id.slice(0, 8)}`;
+  const zweigVon = w => (w.details || {}).zweig || `wunsch-${w.id.slice(0, 8)}`;
+  const zweige = [...new Set(liste.filter(w => w.status === "zur_freigabe" && w.freigegeben).map(zweigVon))];
+  for (const zweig of zweige) {
+    const dazu = liste.filter(w => w.status === "zur_freigabe" && zweigVon(w) === zweig);
     try {
       git(p.ordner, "checkout", "-q", p.zweig);
       if (p.veroeffentlichen) git(p.ordner, "pull", "-q", "--ff-only");
@@ -218,11 +246,11 @@ async function freigabenVeroeffentlichen(p, liste) {
       if (!sauber(p.ordner)) { git(p.ordner, "add", "-A"); git(p.ordner, "commit", "-q", "-m", `Neu gebaut nach Wunsch ${zweig}`); }
       if (p.veroeffentlichen) git(p.ordner, "push", "-q", "origin", p.zweig);
       git(p.ordner, "branch", "-d", zweig);
-      await aendern(w.id, { status: "erledigt", fortschritt: "Veröffentlicht – in der Vorschau in ca. 1–2 Min. sichtbar" });
-      log(`[${p.slug}] ${zweig} veröffentlicht`);
+      for (const w of dazu) await aendern(w.id, { status: "erledigt", fortschritt: "Veröffentlicht – in der Vorschau in ca. 1–2 Min. sichtbar" });
+      log(`[${p.slug}] ${zweig} veröffentlicht (${dazu.length} Wunsch/Wünsche)`);
     } catch (e) {
       try { git(p.ordner, "merge", "--abort"); } catch (e2) {}
-      await aendern(w.id, { freigegeben: false, fortschritt: "Veröffentlichen fehlgeschlagen – die Agentur kümmert sich" });
+      for (const w of dazu) await aendern(w.id, { freigegeben: false, fortschritt: "Veröffentlichen fehlgeschlagen – die Agentur kümmert sich" });
       log(`[${p.slug}] ${zweig} Fehler: ${e.message}`);
     }
   }
@@ -261,7 +289,12 @@ async function runde(meineId) {
       }
       if (heuteZaehlen() >= MAX_PRO_TAG) { await lebenszeichen(projekt.id, `Tagesgrenze von ${MAX_PRO_TAG} Wünschen erreicht – morgen geht es weiter`); continue; }
       await lebenszeichen(projekt.id, warteschlange.length ? `Bearbeite ${warteschlange.length} Wunsch/Wünsche` : "Keine offenen Wünsche");
-      if (warteschlange[0]) await umsetzen(p, projekt, modus, warteschlange[0], namen, meineId);
+      // Gesammelt abgeschickte Wünsche (gleiches Paket) zusammen umsetzen – wartet kurz, bis alle eingetroffen sind
+      const kopf = warteschlange[0];
+      const paket = kopf && (kopf.details || {}).paket;
+      const ws = paket ? warteschlange.filter(w => (w.details || {}).paket === paket).slice(0, 10) : kopf ? [kopf] : [];
+      const unvollstaendig = paket && ws.length < (+kopf.details.paket_anzahl || 0) && Date.now() - Date.parse(kopf.erstellt_am) < 60000;
+      if (ws.length && !unvollstaendig) await umsetzen(p, projekt, modus, ws, namen, meineId);
       await lebenszeichen(projekt.id, "Bereit");
     } catch (e) {
       log(`[${slug}] Fehler:`, e.message);

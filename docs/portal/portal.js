@@ -1,6 +1,6 @@
 // Kunden-Portal: alle Wünsche eines Projekts, Fragen, Freigabe und Export.
 (async function () {
-  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261019c"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
+  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261019d"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
   const KF = window.KundenFeedback, esc = KF.esc, be = await KF.backend();
@@ -129,7 +129,7 @@
     return `<li class="w" id="w-${w.id}">
       <div class="w-kopf"><span class="status ${w.status}">${esc(KF.STATUS[w.status] || w.status)}${w.status === "zur_freigabe" && w.freigegeben ? " – freigegeben" : ""}</span>
         <span class="meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}</span></div>
-      ${w.art && w.art !== "sonstiges" ? `<span class="etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="etikett wichtig">Wichtig</span>` : w.prioritaet === 3 ? `<span class="etikett">Kann warten</span>` : ""}
+      ${w.art && w.art !== "sonstiges" ? `<span class="etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="etikett wichtig">Wichtig</span>` : w.prioritaet === 3 ? `<span class="etikett">Kann warten</span>` : ""}${(w.details || {}).paket_anzahl > 1 ? `<span class="etikett">Paket ${+w.details.paket_nr}/${+w.details.paket_anzahl}</span>` : ""}
       <p class="text">${esc(w.text)}</p>
       ${(w.details || {}).alter_text != null ? `<div class="box"><b>Textänderung</b><br><del>${esc(w.details.alter_text)}</del><br>→ <ins>${esc(w.details.neuer_text)}</ins></div>` : ""}
       ${(w.details || {}).verschiebung ? `<div class="box"><b>Verschiebung</b><br>${esc(KF.verschiebungText(w.details.verschiebung))}</div>` : ""}

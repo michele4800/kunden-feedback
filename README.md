@@ -43,6 +43,12 @@ Im Widget wählt der Kunde zuerst, **was** er möchte – danach zeigt es die pa
 - **Stelle markieren**: Element anklicken, im Portal und auf der Seite erscheint eine Stecknadel.
 - **Wichtigkeit**: wichtig / normal / kann warten – der Wächter arbeitet wichtige Wünsche zuerst ab.
 
+**Wünsche sammeln:** Mit „Zur Liste hinzufügen“ sammelt der Kunde mehrere Wünsche – auch über mehrere Seiten (die Liste liegt
+im Browser, Fotos werden sofort hochgeladen) – und schickt sie mit „Alle zusammen absenden“ als Paket ab. Der Wächter setzt ein
+Paket in einem Durchgang um (eine Schätzung, eine Umsetzung, ein Commit) und zählt es als einen Lauf für die Tagesgrenze.
+Jeder Wunsch bekommt trotzdem sein eigenes Ergebnis (erledigt, Rückfrage, an Agentur). Bei „mit Freigabe“ gibt eine Freigabe
+das ganze Paket frei.
+
 Der Wächter lädt angehängte Fotos in den Ordner `eingang/` des Projekts, Claude sieht sie sich an und wählt,
 welche auf die Website kommen. Die Automatik legt sie als WebP ab (Größen aus `bilder` in `projekte.json`), danach wird `eingang/` gelöscht.
 
