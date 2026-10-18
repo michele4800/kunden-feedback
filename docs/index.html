@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kunden-Feedback – Demo</title>
+<meta name="robots" content="noindex, nofollow">
+<style>
+body{margin:0;font:400 17px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;color:#1b1b19;background:#f5f4f0}
+main{max-width:760px;margin:0 auto;padding:48px 20px 120px}
+h1{font-size:2.2rem;line-height:1.15;margin:0 0 16px}
+.karte{background:#fff;border:1px solid #e1dfd8;border-radius:12px;padding:20px;margin:20px 0}
+code{background:#ecebe6;padding:2px 6px;border-radius:4px;font-size:.9em}
+a{color:#2f6f8a}
+</style>
+</head>
+<body>
+<main>
+  <h1>Kunden-Feedback</h1>
+  <p>Kunden melden sich auf ihrer Website an und tragen Wünsche direkt zur jeweiligen Seite ein. Alles erscheint live im <a href="portal/">Portal</a> – auf Wunsch setzt der Wächter die Änderungen automatisch mit Claude um.</p>
+  <div class="karte">
+    <h2 style="margin-top:0">Ausprobieren</h2>
+    <p>Unten rechts auf „Wünsche“ klicken. Im Demo-Modus funktioniert jede E-Mail-Adresse; mit „agentur“ in der Adresse meldest du dich als Agentur an. Die Daten bleiben nur in diesem Browser.</p>
+  </div>
+  <div class="karte">
+    <h2 style="margin-top:0">Einbinden</h2>
+    <p>Eine Zeile vor <code>&lt;/body&gt;</code> auf jeder Seite der Kunden-Website:</p>
+    <p><code>&lt;script src="https://michele4800.github.io/kunden-feedback/feedback.js" data-projekt="kunden-slug" defer&gt;&lt;/script&gt;</code></p>
+  </div>
+</main>
+<script src="feedback.js" data-projekt="demo" defer></script>
+</body>
+</html>

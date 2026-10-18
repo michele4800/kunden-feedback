@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wünsche & Änderungen – Kunden-Portal</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light">
+<style>
+:root{--grund:#F5F4F0;--karte:#fff;--text:#1B1B19;--leise:#5C5A54;--linie:#E1DFD8;--akzent:#2F6F8A;--fehler:#A4161A}
+*{box-sizing:border-box}
+body{margin:0;background:var(--grund);color:var(--text);font:400 16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+:focus-visible{outline:3px solid var(--akzent);outline-offset:2px}
+.wrap{max-width:1100px;margin:0 auto;padding:0 20px}
+.nur-vorleser{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+header.kopf{background:var(--text);color:#fff}
+header.kopf .wrap{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:64px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
+header.kopf h1{font-size:18px;margin:0}
+header.kopf small{display:block;font-weight:400;opacity:.8;font-size:13px}
+.btn{font:600 15px system-ui,sans-serif;border:2px solid var(--text);background:var(--text);color:#fff;border-radius:999px;padding:9px 16px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn.hell{background:#fff;color:var(--text)}
+.btn.klein{padding:5px 12px;font-size:13px}
+header .btn{border-color:#fff}
+main{padding:24px 0 64px}
+.karte{background:var(--karte);border:1px solid var(--linie);border-radius:12px;padding:20px}
+.anmelden{max-width:420px;margin:40px auto}
+label{display:block;font-weight:600;margin:12px 0 6px}
+input[type=email],input[type=password],input[type=text],input[type=search],textarea,select{width:100%;font:inherit;border:1px solid #8A877F;border-radius:8px;padding:9px 12px;background:#fff;color:var(--text)}
+textarea{min-height:84px;resize:vertical}
+.zeile{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.fehler{color:var(--fehler);font-weight:600;min-height:1.2em;margin:10px 0 0}
+.hinweis{color:var(--leise);font-size:14px}
+.demo{background:#FFF3CC;border-left:4px solid #B98900;padding:8px 12px;font-size:14px;margin:0 0 16px}
+.waechter{display:flex;gap:8px;align-items:center;font-size:14px;color:var(--leise);margin:0 0 18px}
+.punkt{width:10px;height:10px;border-radius:50%;background:#A7A59D;flex:none}
+.punkt.an{background:#2D8A3E;box-shadow:0 0 0 3px rgba(45,138,62,.18)}
+.reiter{display:flex;gap:6px;border-bottom:2px solid var(--linie);margin-bottom:18px;flex-wrap:wrap}
+.reiter button{font:600 15px system-ui,sans-serif;background:none;border:0;padding:10px 14px;cursor:pointer;color:var(--leise);border-bottom:3px solid transparent;margin-bottom:-2px}
+.reiter button[aria-selected=true]{color:var(--text);border-bottom-color:var(--text)}
+.filter{display:grid;grid-template-columns:1fr 1fr 2fr;gap:12px;margin-bottom:16px}
+.filter label{margin-top:0;font-size:13px}
+.liste{list-style:none;margin:0;padding:0;display:grid;gap:12px}
+.w{background:#fff;border:1px solid var(--linie);border-radius:12px;padding:16px}
+.w-kopf{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:center}
+.status{display:inline-block;font-size:13px;font-weight:700;border-radius:999px;padding:2px 10px;background:#ECEBE6}
+.status.in_arbeit{background:#DBEAFE;color:#1E3A8A}.status.rueckfrage{background:#FDE68A;color:#78350F}
+.status.zur_freigabe{background:#E9D5FF;color:#581C87}.status.erledigt{background:#D1FAE5;color:#065F46}.status.abgelehnt{background:#FEE2E2;color:#7F1D1D}
+.w p.text{margin:10px 0 0;white-space:pre-wrap;word-break:break-word;font-size:16px}
+.meta{font-size:13px;color:var(--leise);margin-top:8px}
+.meta a{color:inherit}
+.arbeit{font-size:14px;color:#1E3A8A;margin-top:8px}
+.verlauf{border-top:1px dashed var(--linie);margin-top:12px;padding-top:10px}
+.verlauf div{font-size:15px;margin-top:6px;white-space:pre-wrap}
+.verlauf small{color:var(--leise)}
+.verlauf form{display:flex;gap:8px;margin-top:10px}
+.verlauf input{flex:1}
+.agentur{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px;background:#F7F7F4;border-radius:10px;padding:12px}
+.agentur label{margin:0 0 4px;font-size:13px}
+.leer{color:var(--leise);font-style:italic}
+.frage{margin-bottom:22px}
+.frage .optionen{display:flex;flex-wrap:wrap;gap:8px 18px}
+.frage .optionen label{font-weight:400;display:flex;gap:8px;align-items:center;margin:0}
+.frage .wer{font-size:13px;color:var(--leise);margin-top:4px}
+pre.export{white-space:pre-wrap;background:#F7F7F4;border-radius:10px;padding:14px;font:13px/1.5 ui-monospace,Consolas,monospace;max-height:480px;overflow:auto}
+@media (max-width:760px){.filter,.agentur{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="kopf"><div class="wrap"><h1 id="titel">Wünsche &amp; Änderungen</h1><div id="kopf-rechts"></div></div></header>
+<main class="wrap" id="inhalt" aria-live="polite"><p class="hinweis">Wird geladen …</p></main>
+<script src="../konfig.js"></script>
+<script src="portal.js"></script>
+</body>
+</html>

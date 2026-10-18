@@ -1,0 +1,16 @@
+{
+  "_hinweis": "Kopieren nach waechter/projekte.json. Je Projekt: Slug wie in der Tabelle projekte, lokaler Git-Ordner der Website, Bau-Befehl als Liste.",
+  "intervall_sekunden": 60,
+  "max_pro_tag": 20,
+  "max_minuten": 30,
+  "max_budget_usd": 3,
+  "projekte": {
+    "huehnerhof-schneider": {
+      "ordner": "C:/Projekte/huehnerhof-schneider",
+      "bauen": ["python", "werkzeuge/bauen.py", "--ohne-paket"],
+      "zweig": "main",
+      "veroeffentlichen": true,
+      "geschuetzt": [".git", ".github/", ".gitignore", "werkzeuge/", "livegang/"]
+    }
+  }
+}

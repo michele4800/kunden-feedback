@@ -1,0 +1,17 @@
+{
+  "name": "kunden-feedback",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Wünsche und Änderungen von Kunden direkt auf der Website sammeln – mit Supabase und optionaler Automatik (Wächter).",
+  "type": "module",
+  "scripts": {
+    "test": "node test/zugriff.test.mjs",
+    "waechter": "node waechter/waechter.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.45.4"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.2.17"
+  }
+}
