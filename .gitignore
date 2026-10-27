@@ -3,3 +3,6 @@ waechter/.env
 waechter/projekte.json
 waechter/.heute.json
 waechter/waechter.log
+
+# Windows-Ordnereinstellungen
+desktop.ini
