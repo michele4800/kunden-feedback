@@ -96,7 +96,11 @@ npm run waechter
 - Modus je Projekt im Portal unter *Automatik*: **aus**, **mit Freigabe** (empfohlen) oder **direkt**.
 - Der Wächter prüft jede Minute, meldet ein Lebenszeichen (im Portal: „Automatik aktiv – zuletzt geprüft …“),
   zeigt Warteschlangenplätze an und arbeitet die Wünsche nacheinander ab.
-- Dauerbetrieb unter Windows: Aufgabenplanung → „Beim Anmelden“ → `npm run waechter` im Projektordner.
+- Dauerbetrieb unter Windows: Aufgabenplanung, Aktion `wscript.exe "<ordner>\waechter-unsichtbar.vbs"`, Auslöser
+  „Beim Anmelden“ **und** „Alle 5 Minuten wiederholen“, Einstellung „Neue Instanz nicht starten“. Der Wächter läuft ohne
+  Fenster (kann nicht versehentlich geschlossen werden); ist er beendet, startet ihn die Aufgabe spätestens nach 5 Minuten neu.
+  Ausgaben: `waechter/waechter.log`. Beenden: Aufgabe beenden und Prozesse `waechter.mjs` beenden.
+- Der Wächter arbeitet nur, wenn der Website-Ordner keine ungespeicherten Änderungen hat (Hinweis im Portal).
 
 **Sicherheit**
 - Der Wächter meldet sich als normaler Agentur-Benutzer an – die Datenbankregeln gelten auch für ihn.
