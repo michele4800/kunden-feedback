@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dashboard – Kunden-Plattform</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light">
+<style>
+:root{--grund:#F5F4F0;--karte:#fff;--text:#1B1B19;--leise:#5C5A54;--linie:#E1DFD8;--akzent:#2F6F8A;--fehler:#A4161A;--gut:#2D8A3E}
+*{box-sizing:border-box}
+body{margin:0;background:var(--grund);color:var(--text);font:400 16px/1.55 system-ui,-apple-system,"Segoe UI",sans-serif}
+:focus-visible{outline:3px solid var(--akzent);outline-offset:2px}
+.wrap{max-width:1240px;margin:0 auto;padding:0 20px}
+.nur-vorleser{position:absolute;width:1px;height:1px;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+header.kopf{background:var(--text);color:#fff}
+header.kopf .wrap{display:flex;justify-content:space-between;align-items:center;gap:16px;min-height:64px;flex-wrap:wrap;padding-top:10px;padding-bottom:10px}
+header.kopf h1{font-size:18px;margin:0}
+header.kopf small{display:block;font-weight:400;opacity:.8;font-size:13px}
+.btn{font:600 15px system-ui,sans-serif;border:2px solid var(--text);background:var(--text);color:#fff;border-radius:999px;padding:9px 16px;cursor:pointer;text-decoration:none;display:inline-block}
+.btn.hell{background:#fff;color:var(--text)}
+.btn.klein{padding:5px 12px;font-size:13px}
+.btn:disabled{opacity:.5;cursor:default}
+header .btn{border-color:#fff}
+main{padding:20px 0 64px}
+.karte{background:var(--karte);border:1px solid var(--linie);border-radius:12px;padding:20px}
+.anmelden{max-width:420px;margin:40px auto}
+label{display:block;font-weight:600;margin:12px 0 6px;font-size:14px}
+input[type=email],input[type=password],input[type=text],input[type=url],input[type=search],textarea,select{width:100%;font:inherit;border:1px solid #8A877F;border-radius:8px;padding:8px 11px;background:#fff;color:var(--text)}
+textarea{min-height:70px;resize:vertical}
+.zeile{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
+.fehler{color:var(--fehler);font-weight:600;min-height:1.2em;margin:10px 0 0}
+.hinweis{color:var(--leise);font-size:14px}
+.demo{background:#FFF3CC;border-left:4px solid #B98900;padding:8px 12px;font-size:14px;margin:0 0 16px}
+.lage{display:flex;gap:10px 28px;flex-wrap:wrap;align-items:center;background:#fff;border:1px solid var(--linie);border-radius:12px;padding:12px 16px;margin-bottom:18px;font-size:15px}
+.lage b{font-weight:700}
+.lage .fehlerzeile{color:var(--fehler)}
+.punkt{display:inline-block;width:10px;height:10px;border-radius:50%;background:#A7A59D;margin-right:7px;vertical-align:0}
+.punkt.an{background:var(--gut);box-shadow:0 0 0 3px rgba(45,138,62,.18)}
+.punkt.rot{background:var(--fehler)}
+.reiter{display:flex;gap:6px;border-bottom:2px solid var(--linie);margin-bottom:18px;flex-wrap:wrap}
+.reiter button{font:600 15px system-ui,sans-serif;background:none;border:0;padding:10px 14px;cursor:pointer;color:var(--leise);border-bottom:3px solid transparent;margin-bottom:-2px}
+.reiter button[aria-selected=true]{color:var(--text);border-bottom-color:var(--text)}
+.kunden{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:16px}
+.kunde{background:#fff;border:1px solid var(--linie);border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;gap:10px}
+.kunde.inaktiv{opacity:.6}
+.kunde-kopf{display:flex;justify-content:space-between;gap:10px;align-items:baseline}
+.kunde h3{margin:0;font-size:18px}
+.etikett{display:inline-block;font-size:12px;border:1px solid #D6D3CA;border-radius:999px;padding:1px 9px;color:#47453F;white-space:nowrap}
+.zahlen{display:flex;gap:6px;flex-wrap:wrap}
+.zahl{font-size:13px;border-radius:8px;padding:4px 9px;background:#F1F0EB}
+.zahl b{font-size:15px;margin-right:3px}
+.zahl.offen b{color:var(--text)}.zahl.in_arbeit{background:#DBEAFE}.zahl.rueckfrage{background:#FDE68A}.zahl.zur_freigabe{background:#E9D5FF}.zahl.wichtig{background:#FEE2E2;color:#7F1D1D}
+.zahl.null{opacity:.45}
+.links{display:flex;gap:6px 14px;flex-wrap:wrap;font-size:14px}
+.links a{color:var(--akzent)}
+.meta{font-size:13px;color:var(--leise)}
+.status{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;background:#ECEBE6;white-space:nowrap}
+.status.in_arbeit,.status.laeuft{background:#DBEAFE;color:#1E3A8A}.status.rueckfrage{background:#FDE68A;color:#78350F}
+.status.zur_freigabe{background:#E9D5FF;color:#581C87}.status.erledigt,.status.ok{background:#D1FAE5;color:#065F46}.status.fehler{background:#FEE2E2;color:#7F1D1D}
+.kunde select{width:auto;padding:4px 8px;font-size:14px}
+.unten{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:auto;padding-top:8px;border-top:1px solid var(--linie)}
+.einstellungen{display:grid;grid-template-columns:1fr 1fr;gap:4px 14px;background:#F7F7F4;border-radius:10px;padding:4px 12px 12px}
+.einstellungen .breit{grid-column:1/-1}
+.filter{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.filter label{margin:0 0 4px}
+.filter>div{min-width:180px}
+table.liste{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--linie);border-radius:12px;overflow:hidden;font-size:14px}
+.liste th,.liste td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--linie);vertical-align:top}
+.liste th{background:#F7F7F4;font-size:13px;color:var(--leise);font-weight:600}
+.liste tr:last-child td{border-bottom:0}
+.liste td.text{max-width:460px}
+.liste .wichtig{color:var(--fehler);font-weight:700}
+.tabelle{overflow-x:auto}
+.leer{color:var(--leise);font-style:italic}
+.neu-form{max-width:760px;display:grid;grid-template-columns:1fr 1fr;gap:4px 16px}
+.neu-form .breit{grid-column:1/-1}
+.ergebnis{background:#ECFDF3;border:1px solid #A7E3BC;border-radius:12px;padding:16px 18px;margin-top:18px;max-width:760px}
+.ergebnis pre{white-space:pre-wrap;background:#fff;border:1px solid var(--linie);border-radius:8px;padding:10px;font:13px/1.5 ui-monospace,Consolas,monospace;margin:8px 0}
+@media (max-width:760px){.liste td.text{min-width:200px}.kunden{grid-template-columns:1fr}.einstellungen,.neu-form{grid-template-columns:1fr}.liste .weg{display:none}}
+</style>
+</head>
+<body>
+<header class="kopf"><div class="wrap"><h1 id="titel">Dashboard<small>Kunden-Plattform</small></h1><div id="kopf-rechts"></div></div></header>
+<main class="wrap" id="inhalt" aria-live="polite"><p class="hinweis">Wird geladen …</p></main>
+<script src="../konfig.js?v=20261029a"></script>
+<script src="dashboard.js?v=20261029a"></script>
+</body>
+</html>

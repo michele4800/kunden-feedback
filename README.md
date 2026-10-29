@@ -18,10 +18,12 @@ Kunde (Website + Widget) ──► Supabase (EU) ◄── Portal (Kunde & Agent
 |---|---|
 | `docs/feedback.js` | Kleiner **Lader** für jede Kunden-Website, holt immer die aktuelle `widget.js` |
 | `docs/widget.js` | **Widget**: Knopf „Wünsche“, Anmeldung, Werkzeuge (siehe unten), Verlauf, Live-Status |
+| `docs/dashboard/` | **Dashboard** für dich (Admin): alle Kunden, Wünsche, Veröffentlichungen, Zustand der Automatik, Kunden anlegen |
 | `docs/portal/` | **Portal**: alle Wünsche mit Filter, Status, Restzeit, Antworten, Fragen, Freigabe, Export für Claude |
 | `docs/backend.js` | Gemeinsame Schicht für Supabase und den Demo-Modus |
 | `docs/konfig.js` | Supabase-Adresse und öffentlicher Schlüssel (leer = Demo-Modus) |
 | `supabase/schema.sql` | Tabellen, Zugriffsregeln (RLS), Trigger, Realtime |
+| `supabase/functions/kunde-anlegen/` | Edge Function: legt aus dem Dashboard Kunden-Login, Projekt und Automatik an (nur Admins) |
 | `supabase/neuer-kunde.sql` | Vorlage: Projekt, Mitglieder, Automatik und Fragen für einen Kunden |
 | `waechter/` | **Wächter**: setzt Wünsche mit Claude Code um |
 | `test/` | Tests der Zugriffsregeln (echtes Postgres) und Praxistest für Claude Code |
@@ -71,7 +73,23 @@ Mit `?kf-demo` in der Adresse läuft Widget oder Portal auch bei eingetragenem S
    Der anon-Schlüssel ist öffentlich und darf ins Git. **Niemals den service_role-Schlüssel verwenden.**
 5. Committen und pushen – GitHub Pages veröffentlicht `docs/`.
 
-## Neuen Kunden anlegen
+## Dashboard einrichten (einmalig)
+
+1. **SQL Editor:** aktuelle `supabase/schema.sql` ausführen, danach dich selbst als Admin eintragen:
+   ```sql
+   insert into public.admins select id from auth.users where email = 'deine@adresse.de' on conflict do nothing;
+   ```
+   Admins sehen alle Projekte und gelten in jedem Projekt als Agentur. Der Automatik-Benutzer wird **kein** Admin.
+2. **Edge Function:** *Edge Functions → Deploy a new function → Via Editor*, Name `kunde-anlegen`, Inhalt von
+   `supabase/functions/kunde-anlegen/index.ts` einfügen, *Deploy*. „Verify JWT“ eingeschaltet lassen.
+   Den service_role-Schlüssel stellt Supabase der Funktion selbst bereit – er wird nirgends eingetragen.
+3. Dashboard öffnen: `https://michele4800.github.io/kunden-feedback/dashboard/` und mit deinem Agentur-Login anmelden.
+
+Neue Kunden legst du danach im Dashboard unter **Kunde anlegen** an: Es erzeugt Login (Passwort wird einmal angezeigt),
+Projekt, Mitglieder (der Kunde und alle Agentur-Benutzer, also auch die Automatik) und den Automatik-Eintrag,
+und zeigt Zugangsdaten, Einbau-Code und den Eintrag für `waechter/projekte.json` zum Kopieren.
+
+## Neuen Kunden anlegen (ohne Dashboard)
 
 1. *Authentication → Users → Add user*: Kunde (E-Mail + Passwort, „Auto Confirm User“), dazu einmalig du selbst
    und der Automatik-Benutzer (z. B. `automatik@…`).
@@ -113,7 +131,7 @@ npm run waechter
 ## Tests
 
 ```bash
-npm test                                                    # 17 Tests der Zugriffsregeln (PGlite) + Foto-Ablage
+npm test                                                    # 19 Tests der Zugriffsregeln (PGlite) + Foto-Ablage
 node test/claude-probe.mjs <git-url> [bau-befehl …]         # Praxistest mit Claude Code an einer Wegwerf-Kopie
 ```
 

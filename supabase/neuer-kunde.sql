@@ -1,3 +1,6 @@
+-- Einfacher geht es im Dashboard („Kunde anlegen“). Dich selbst einmalig als Admin eintragen:
+--   insert into public.admins select id from auth.users where email = 'du@deine-agentur.de' on conflict do nothing;
+--
 -- Neuen Kunden anlegen. Vorher in Supabase → Authentication → Users die Benutzer anlegen
 -- („Add user“ → E-Mail + Passwort, „Auto Confirm User“ an). Dann hier die Platzhalter ersetzen und im SQL Editor ausführen.
 

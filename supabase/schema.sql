@@ -4,7 +4,9 @@
 -- Rollen je Projekt:
 --   kunde   – sieht nur sein Projekt, trägt Wünsche, Kommentare und Antworten ein, bearbeitet eigene offene Wünsche
 --   agentur – sieht das Projekt, setzt Status und Priorität, antwortet, pflegt Fragen
--- Projekte und Mitglieder werden nur im Dashboard (bzw. mit neuer-kunde.sql) angelegt – nie aus dem Browser.
+-- Plattformweit:
+--   admin   – (Tabelle admins) sieht und verwaltet alle Projekte, legt Projekte und Mitglieder an (Agentur-Dashboard)
+-- Projekte und Mitglieder legt nur ein Admin an (Dashboard, Edge Function kunde-anlegen oder neuer-kunde.sql).
 
 -- gen_random_uuid() ist seit Postgres 13 eingebaut, keine Erweiterung nötig
 
@@ -93,18 +95,67 @@ create table if not exists public.automatik (
   letzter_lauf timestamptz,                        -- Lebenszeichen des Wächters
   hinweis      text not null default '' check (length(hinweis) <= 500)
 );
+-- Dashboard (seit Version 3): Tagesverbrauch und letzter Fehler des Wächters
+alter table public.automatik add column if not exists heute_laeufe integer not null default 0;
+alter table public.automatik add column if not exists letzter_fehler text not null default '';
+do $$ begin
+  alter table public.automatik add constraint automatik_fehler check (length(letzter_fehler) <= 1000);
+exception when duplicate_object then null; end $$;
+
+-- Website-Angaben je Projekt (seit Version 3). Zugangsdaten zum Hosting stehen NIE hier, nur lokal beim Wächter.
+alter table public.projekte add column if not exists live_url  text not null default '';
+alter table public.projekte add column if not exists domain    text not null default '';
+alter table public.projekte add column if not exists hosting   text not null default 'keins';
+alter table public.projekte add column if not exists entwuerfe jsonb not null default '[]'::jsonb;  -- [{name, url}]
+alter table public.projekte add column if not exists aktiv     boolean not null default true;
+do $$ begin
+  alter table public.projekte add constraint projekte_hosting check (hosting in ('keins', 'github', 'sftp', 'netlify'));
+exception when duplicate_object then null; end $$;
+do $$ begin
+  alter table public.projekte add constraint projekte_angaben check (
+    length(live_url) <= 500 and length(domain) <= 255 and length(coalesce(vorschau_url, '')) <= 500
+    and jsonb_typeof(entwuerfe) = 'array' and jsonb_array_length(entwuerfe) <= 20 and length(entwuerfe::text) <= 5000);
+exception when duplicate_object then null; end $$;
+
+-- Plattform-Admins (Agentur-Dashboard). Eintragen nur im SQL Editor: insert into public.admins select id from auth.users where email = '…';
+create table if not exists public.admins (
+  user_id uuid primary key references auth.users(id) on delete cascade
+);
+
+-- Protokoll aller Veröffentlichungen (schreibt der Wächter)
+create table if not exists public.veroeffentlichungen (
+  id            uuid primary key default gen_random_uuid(),
+  projekt_id    uuid not null references public.projekte(id) on delete cascade,
+  anlass        text not null check (anlass in ('wunsch', 'inhalt', 'freigabe', 'zuruecknehmen', 'manuell')),
+  status        text not null default 'laeuft' check (status in ('laeuft', 'ok', 'fehler')),
+  commit_hash   text not null default '' check (length(commit_hash) <= 64),
+  ziel          text not null default '' check (length(ziel) <= 200),      -- z. B. „GitHub Pages“ oder „SFTP ftp.strato.de“
+  meldung       text not null default '' check (length(meldung) <= 2000),
+  dateien       integer not null default 0,
+  zuruecknehmen text not null default '' check (zuruecknehmen in ('', 'angefragt', 'erledigt', 'fehler')),
+  start         timestamptz not null default now(),
+  ende          timestamptz
+);
+create index if not exists veroeffentlichungen_projekt on public.veroeffentlichungen(projekt_id, start desc);
 
 -- ---------- Hilfsfunktionen (security definer, damit RLS-Prüfungen nicht rekursiv werden) ----------
+create or replace function public.ist_admin() returns boolean
+  language sql stable security definer set search_path = public as
+$$ select exists (select 1 from public.admins a where a.user_id = auth.uid()) $$;
+
+-- Admins gelten in jedem Projekt als Mitglied und Agentur
 create or replace function public.ist_mitglied(p uuid) returns boolean
   language sql stable security definer set search_path = public as
-$$ select exists (select 1 from public.mitglieder m where m.projekt_id = p and m.user_id = auth.uid()) $$;
+$$ select public.ist_admin() or exists (select 1 from public.mitglieder m where m.projekt_id = p and m.user_id = auth.uid()) $$;
 
 create or replace function public.ist_agentur(p uuid) returns boolean
   language sql stable security definer set search_path = public as
-$$ select exists (select 1 from public.mitglieder m where m.projekt_id = p and m.user_id = auth.uid() and m.rolle = 'agentur') $$;
+$$ select public.ist_admin() or exists (select 1 from public.mitglieder m where m.projekt_id = p and m.user_id = auth.uid() and m.rolle = 'agentur') $$;
 
+revoke all on function public.ist_admin() from public, anon;
 revoke all on function public.ist_mitglied(uuid) from public, anon;
 revoke all on function public.ist_agentur(uuid) from public, anon;
+grant execute on function public.ist_admin() to authenticated;
 grant execute on function public.ist_mitglied(uuid) to authenticated;
 grant execute on function public.ist_agentur(uuid) to authenticated;
 
@@ -188,6 +239,31 @@ drop trigger if exists antwort_pruefen on public.antworten;
 create trigger antwort_pruefen before insert or update on public.antworten
   for each row execute function public.antwort_pruefen();
 
+-- Veröffentlichungen: Zurücknehmen anfragen darf nur ein Admin; Projekt und Start sind unveränderlich
+create or replace function public.veroeffentlichung_pruefen() returns trigger
+  language plpgsql security definer set search_path = public as
+$$
+begin
+  if tg_op = 'INSERT' then
+    new.start := now();
+    if new.zuruecknehmen = 'angefragt' and not public.ist_admin() then
+      raise exception 'Zurücknehmen kann nur ein Admin anfragen';
+    end if;
+    return new;
+  end if;
+  if new.projekt_id <> old.projekt_id or new.start <> old.start then
+    raise exception 'Projekt und Startzeit sind unveränderlich';
+  end if;
+  if new.zuruecknehmen <> old.zuruecknehmen and new.zuruecknehmen = 'angefragt' and not public.ist_admin() then
+    raise exception 'Zurücknehmen kann nur ein Admin anfragen';
+  end if;
+  return new;
+end
+$$;
+drop trigger if exists veroeffentlichung_pruefen on public.veroeffentlichungen;
+create trigger veroeffentlichung_pruefen before insert or update on public.veroeffentlichungen
+  for each row execute function public.veroeffentlichung_pruefen();
+
 -- ---------- Zugriffsregeln (Row Level Security) ----------
 alter table public.projekte   enable row level security;
 alter table public.mitglieder enable row level security;
@@ -196,18 +272,41 @@ alter table public.kommentare enable row level security;
 alter table public.fragen     enable row level security;
 alter table public.antworten  enable row level security;
 alter table public.automatik  enable row level security;
+alter table public.admins     enable row level security;
+alter table public.veroeffentlichungen enable row level security;
 
 -- Nicht angemeldete Besucher (anon) bekommen gar nichts
-revoke all on public.projekte, public.mitglieder, public.wuensche, public.kommentare, public.fragen, public.antworten, public.automatik from anon;
-grant select on public.projekte, public.mitglieder to authenticated;
+revoke all on public.projekte, public.mitglieder, public.wuensche, public.kommentare, public.fragen, public.antworten, public.automatik,
+  public.admins, public.veroeffentlichungen from anon;
+grant select, insert, update on public.projekte to authenticated;
+grant select, insert, update, delete on public.mitglieder to authenticated;
 grant select, insert, update, delete on public.wuensche, public.kommentare, public.fragen, public.antworten to authenticated;
-grant select, insert, update on public.automatik to authenticated;
+grant select, insert, update on public.automatik, public.veroeffentlichungen to authenticated;
+grant select on public.admins to authenticated;
 
 drop policy if exists projekte_lesen on public.projekte;
 create policy projekte_lesen on public.projekte for select to authenticated using (public.ist_mitglied(id));
+drop policy if exists projekte_anlegen on public.projekte;
+create policy projekte_anlegen on public.projekte for insert to authenticated with check (public.ist_admin());
+drop policy if exists projekte_aendern on public.projekte;
+create policy projekte_aendern on public.projekte for update to authenticated using (public.ist_admin()) with check (public.ist_admin());
 
 drop policy if exists mitglieder_lesen on public.mitglieder;
 create policy mitglieder_lesen on public.mitglieder for select to authenticated using (public.ist_mitglied(projekt_id));
+drop policy if exists mitglieder_pflegen on public.mitglieder;
+create policy mitglieder_pflegen on public.mitglieder for all to authenticated using (public.ist_admin()) with check (public.ist_admin());
+
+-- Jeder sieht nur, ob er selbst Admin ist; eingetragen wird nur im SQL Editor
+drop policy if exists admins_lesen on public.admins;
+create policy admins_lesen on public.admins for select to authenticated using (user_id = auth.uid());
+
+drop policy if exists veroeffentlichungen_lesen on public.veroeffentlichungen;
+create policy veroeffentlichungen_lesen on public.veroeffentlichungen for select to authenticated using (public.ist_mitglied(projekt_id));
+drop policy if exists veroeffentlichungen_anlegen on public.veroeffentlichungen;
+create policy veroeffentlichungen_anlegen on public.veroeffentlichungen for insert to authenticated with check (public.ist_agentur(projekt_id));
+drop policy if exists veroeffentlichungen_aendern on public.veroeffentlichungen;
+create policy veroeffentlichungen_aendern on public.veroeffentlichungen for update to authenticated
+  using (public.ist_agentur(projekt_id)) with check (public.ist_agentur(projekt_id));
 
 drop policy if exists wuensche_lesen on public.wuensche;
 create policy wuensche_lesen on public.wuensche for select to authenticated using (public.ist_mitglied(projekt_id));
@@ -287,6 +386,8 @@ begin
     begin alter publication supabase_realtime add table public.kommentare; exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.antworten;  exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.automatik;  exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table public.projekte;   exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table public.veroeffentlichungen; exception when duplicate_object then null; end;
   end if;
 end $$;
 

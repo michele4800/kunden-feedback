@@ -30,7 +30,7 @@ await db.exec(schema); // zweimal: muss wiederholbar sein
 const ID = {
   kundeA: "00000000-0000-0000-0000-0000000000a1", kundeA2: "00000000-0000-0000-0000-0000000000a2",
   kundeB: "00000000-0000-0000-0000-0000000000b1", agentur: "00000000-0000-0000-0000-0000000000c1",
-  claude: "00000000-0000-0000-0000-0000000000c2",
+  claude: "00000000-0000-0000-0000-0000000000c2", admin: "00000000-0000-0000-0000-0000000000e1",
   projA: "10000000-0000-0000-0000-00000000000a", projB: "10000000-0000-0000-0000-00000000000b",
 };
 await db.exec(`
@@ -136,9 +136,46 @@ await test("Automatik-Status: Agentur schreibt, Kunde liest nur", async () => {
   const l = await als("kundeA", "select modus from automatik"); assert.equal(l.rows[0].modus, "direkt");
 });
 
-await test("Kunde kann sich nicht selbst in Projekte eintragen oder Projekte ändern", async () => {
-  await fehlt("kundeA", "insert into mitglieder values ($1, $2, 'agentur', 'x')", [ID.projB, ID.kundeA], /permission denied/);
-  await fehlt("kundeA", "update projekte set name = 'x'", [], /permission denied/);
+await test("Kunde und Agentur können sich nicht selbst in Projekte eintragen, Projekte anlegen oder ändern", async () => {
+  await fehlt("kundeA", "insert into mitglieder values ($1, $2, 'agentur', 'x')", [ID.projB, ID.kundeA], /row-level security/);
+  await fehlt("agentur", "insert into mitglieder values ($1, $2, 'kunde', 'x')", [ID.projA, ID.kundeB], /row-level security/);
+  await fehlt("kundeA", "insert into projekte (slug, name) values ('neu', 'Neu')", [], /row-level security/);
+  await fehlt("kundeA", "insert into admins values ($1)", [ID.kundeA], /permission denied/);
+  assert.equal((await als("kundeA", "update projekte set name = 'x' returning id")).rows.length, 0);
+  assert.equal((await als("agentur", "update projekte set hosting = 'sftp' returning id")).rows.length, 0);
+  assert.equal((await als("kundeA", "delete from mitglieder where user_id = $1 returning user_id", [ID.kundeA2])).rows.length, 0);
+});
+
+await test("Admin sieht alle Projekte, legt Projekt und Mitglieder an und pflegt Website-Angaben", async () => {
+  await db.exec(`insert into auth.users values ('${ID.admin}','admin@x'); insert into admins values ('${ID.admin}')`);
+  assert.equal((await als("admin", "select count(*)::int c from projekte")).rows[0].c, 2);
+  assert.equal((await als("admin", "select count(*)::int c from admins")).rows[0].c, 1);
+  assert.equal((await als("kundeA", "select count(*)::int c from admins")).rows[0].c, 0);  // fremde Admin-Einträge unsichtbar
+  const p = (await als("admin", `insert into projekte (slug, name, hosting, live_url, entwuerfe)
+    values ('baeckerei-x', 'Bäckerei X', 'sftp', 'https://baeckerei-x.de', '[{"name":"Entwurf 1","url":"https://v/1/"}]') returning id`)).rows[0];
+  await als("admin", "insert into mitglieder values ($1, $2, 'kunde', 'Kunde B')", [p.id, ID.kundeB]);
+  await als("admin", "insert into automatik (projekt_id, modus) values ($1, 'mit_freigabe')", [p.id]);
+  assert.deepEqual((await als("kundeB", "select slug from projekte order by slug")).rows.map(x => x.slug), ["baeckerei-x", "hof-b"]);
+  await fehlt("admin", "update projekte set hosting = 'ftp' where id = $1", [p.id], /check constraint/);
+  // Admin wirkt in jedem Projekt wie die Agentur
+  const w = await als("admin", "update wuensche set status = 'erledigt' where id = $1 returning status", [wunschA.id]);
+  assert.equal(w.rows[0].status, "erledigt");
+});
+
+await test("Veröffentlichungen: Wächter schreibt, Kunde liest nur eigene, Zurücknehmen fragt nur der Admin an", async () => {
+  const v = (await als("claude", `insert into veroeffentlichungen (projekt_id, anlass, ziel, commit_hash)
+    values ($1, 'wunsch', 'GitHub Pages', 'abc123') returning id, status, start`, [ID.projA])).rows[0];
+  assert.equal(v.status, "laeuft");
+  await als("claude", "update veroeffentlichungen set status = 'ok', ende = now(), dateien = 3 where id = $1", [v.id]);
+  assert.equal((await als("kundeA", "select count(*)::int c from veroeffentlichungen")).rows[0].c, 1);
+  assert.equal((await als("kundeB", "select count(*)::int c from veroeffentlichungen")).rows[0].c, 0);
+  await fehlt("kundeA", "insert into veroeffentlichungen (projekt_id, anlass) values ($1, 'manuell')", [ID.projA], /row-level security/);
+  assert.equal((await als("kundeA", "update veroeffentlichungen set zuruecknehmen = 'angefragt' returning id")).rows.length, 0);
+  await fehlt("claude", "update veroeffentlichungen set zuruecknehmen = 'angefragt' where id = $1", [v.id], /nur ein Admin/);
+  await fehlt("claude", "update veroeffentlichungen set start = now() - interval '1 day' where id = $1", [v.id], /unveränderlich/);
+  await als("admin", "update veroeffentlichungen set zuruecknehmen = 'angefragt' where id = $1", [v.id]);
+  const e = await als("claude", "update veroeffentlichungen set zuruecknehmen = 'erledigt' where id = $1 returning zuruecknehmen", [v.id]);
+  assert.equal(e.rows[0].zuruecknehmen, "erledigt");
 });
 
 await test("Kunde löscht eigenen offenen Wunsch", async () => {

@@ -1,6 +1,6 @@
 // Kunden-Portal: alle Wünsche eines Projekts, Fragen, Freigabe und Export.
 (async function () {
-  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261019d"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
+  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261029a"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
   const KF = window.KundenFeedback, esc = KF.esc, be = await KF.backend();
@@ -67,9 +67,10 @@
     await zeichnen();
   }
 
-  function auswahl(alle) {
+  async function auswahl(alle) {
     kopf();
-    inhalt.innerHTML = `<h2>Projekte</h2>${alle.length ? `<ul class="liste">${alle.map(p => `<li class="w"><a href="?projekt=${encodeURIComponent(p.slug)}">${esc(p.name)}</a></li>`).join("")}</ul>` : `<p class="leer">Für dieses Konto ist noch kein Projekt freigegeben.</p>`}`;
+    const admin = be.istAdmin && await be.istAdmin().catch(() => false);
+    inhalt.innerHTML = `${admin ? `<p><a class="btn" href="../dashboard/">Zum Dashboard</a></p>` : ""}<h2>Projekte</h2>${alle.length ? `<ul class="liste">${alle.map(p => `<li class="w"><a href="?projekt=${encodeURIComponent(p.slug)}">${esc(p.name)}</a></li>`).join("")}</ul>` : `<p class="leer">Für dieses Konto ist noch kein Projekt freigegeben.</p>`}`;
   }
 
   function kopf() {

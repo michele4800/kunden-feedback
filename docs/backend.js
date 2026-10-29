@@ -54,6 +54,41 @@
         kanal.subscribe();
         return () => sb.removeChannel(kanal);
       },
+      // ---- Dashboard (Admin) ----
+      async istAdmin() {
+        const s = await this.sitzung(); if (!s) return false;
+        return ok(await sb.from("admins").select("user_id").eq("user_id", s.user.id)).length > 0;
+      },
+      // Alles, was der Benutzer sehen darf – für Admins also alle Projekte
+      async uebersicht() {
+        const [projekte, wuensche, automatik, veroeffentlichungen] = await Promise.all([
+          sb.from("projekte").select("*").order("name"),
+          sb.from("wuensche").select("id, projekt_id, status, prioritaet, art, text, seite_titel, seite_url, bearbeiter, fortschritt, freigegeben, erstellt_am, geaendert_am")
+            .neq("status", "abgelehnt").order("erstellt_am", { ascending: false }).limit(1000),
+          sb.from("automatik").select("*"),
+          sb.from("veroeffentlichungen").select("*").order("start", { ascending: false }).limit(200),
+        ].map(p => p.then(ok)));
+        return { projekte, wuensche, automatik, veroeffentlichungen };
+      },
+      async projektSpeichern(id, patch) { return ok(await sb.from("projekte").update(patch).eq("id", id).select().single()); },
+      async zuruecknehmen(id) { ok(await sb.from("veroeffentlichungen").update({ zuruecknehmen: "angefragt" }).eq("id", id)); },
+      async kundeAnlegen(daten) {
+        const { data, error } = await sb.functions.invoke("kunde-anlegen", { body: daten });
+        if (error) {
+          let text = error.message;
+          try { text = (await error.context.json()).fehler || text; } catch (e) {}
+          if (/Failed to send|404/i.test(text)) text = "Die Funktion „kunde-anlegen“ ist in Supabase noch nicht eingerichtet (siehe README).";
+          throw new Error(übersetzen(text));
+        }
+        return data;
+      },
+      beobachtenAlle(fn) {
+        const kanal = sb.channel("kf-alle");
+        for (const t of ["projekte", "wuensche", "automatik", "veroeffentlichungen"])
+          kanal.on("postgres_changes", { event: "*", schema: "public", table: t }, () => fn(t));
+        kanal.subscribe();
+        return () => sb.removeChannel(kanal);
+      },
     };
   }
 
@@ -79,6 +114,7 @@
         d = { projekte: [], mitglieder: [], wuensche: [], kommentare: [], fragen: [], antworten: [], automatik: [] };
         schreiben(d);
       }
+      d.veroeffentlichungen = d.veroeffentlichungen || [];  // ältere Demo-Daten
       return d;
     }
     const sitzung = () => { try { return JSON.parse(localStorage.getItem(S)); } catch (e) { return null; } };
@@ -153,7 +189,60 @@
       async dateiUrl(pfad) { try { return JSON.parse(localStorage.getItem("kf-demo-dateien") || "{}")[pfad] || ""; } catch (e) { return ""; } },
       async automatikSetzen(p, modus) { const d = daten(); const a = d.automatik.find(x => x.projekt_id === p); if (a) a.modus = modus; else d.automatik.push({ projekt_id: p, modus }); schreiben(d); },
       beobachten(p, fn) { const f = () => fn("alle"); zuhörer.add(f); return () => zuhörer.delete(f); },
+      // ---- Dashboard (Admin) – Demo: „admin“ oder „agentur“ im Namen ----
+      async istAdmin() { return /agentur|admin/i.test((ich() || {}).email || ""); },
+      async uebersicht() {
+        if (!daten().projekte.length) demoBeispiele();
+        const d = daten();
+        return { projekte: [...d.projekte].sort((a, b) => a.name.localeCompare(b.name)), wuensche: d.wuensche.filter(w => w.status !== "abgelehnt"),
+          automatik: d.automatik, veroeffentlichungen: [...d.veroeffentlichungen].sort((a, b) => b.start.localeCompare(a.start)) };
+      },
+      async projektSpeichern(id, patch) { const d = daten(), p = d.projekte.find(x => x.id === id); Object.assign(p, patch); schreiben(d); return p; },
+      async zuruecknehmen(id) { const d = daten(), v = d.veroeffentlichungen.find(x => x.id === id); v.zuruecknehmen = "angefragt"; schreiben(d); },
+      async kundeAnlegen(x) {
+        if (!/^[a-z0-9-]{2,60}$/.test(x.slug || "")) throw new Error("Kurzname: nur a–z, 0–9 und Bindestrich (2–60 Zeichen)");
+        const d = daten();
+        if (d.projekte.some(p => p.slug === x.slug)) throw new Error("Kurzname ist schon vergeben");
+        const p = { id: neu(), slug: x.slug, name: x.name, vorschau_url: x.vorschau_url || "", live_url: x.live_url || "", domain: x.domain || "",
+          hosting: x.hosting || "keins", entwuerfe: x.entwuerfe || [], aktiv: true, erstellt_am: jetzt() };
+        d.projekte.push(p);
+        d.mitglieder.push({ projekt_id: p.id, user_id: "demo-kunde", rolle: "kunde", anzeigename: x.anzeigename || x.name },
+          { projekt_id: p.id, user_id: "demo-agentur", rolle: "agentur", anzeigename: "Agentur (Demo)" });
+        d.automatik.push({ projekt_id: p.id, modus: x.modus || "mit_freigabe", letzter_lauf: null, hinweis: "", heute_laeufe: 0, letzter_fehler: "" });
+        schreiben(d);
+        return { projekt: p, kunde: { email: x.email, passwort: "demo-" + Math.random().toString(36).slice(2, 10), vorhanden: false } };
+      },
+      beobachtenAlle(fn) { const f = () => fn("alle"); zuhörer.add(f); return () => zuhörer.delete(f); },
     };
+
+    // Zwei Beispielkunden, damit das Demo-Dashboard nicht leer ist
+    function demoBeispiele() {
+      const d = daten(), vor = min => new Date(Date.now() - min * 60000).toISOString();
+      const a = { id: neu(), slug: "huehnerhof-schneider", name: "Hühnerhof Schneider", vorschau_url: "https://michele4800.github.io/huehnerhof-schneider-entwurf/",
+        live_url: "", domain: "huehnerhof-schneider.de", hosting: "sftp", aktiv: true, erstellt_am: vor(9000),
+        entwuerfe: [1, 2, 3, 4].map(n => ({ name: "Entwurf " + n, url: `https://michele4800.github.io/huehnerhof-schneider-entwurf/${["eroeffnung", "hofbus", "hofgeschichte", "kombi"][n - 1]}/` })) };
+      const b = { id: neu(), slug: "baeckerei-muster", name: "Bäckerei Muster", vorschau_url: "", live_url: "https://baeckerei-muster.example", domain: "baeckerei-muster.example",
+        hosting: "github", aktiv: true, erstellt_am: vor(3000), entwuerfe: [] };
+      d.projekte.push(a, b);
+      for (const p of [a, b]) for (const u of [["demo-kunde", "kunde", "Kunde (Demo)"], ["demo-agentur", "agentur", "Agentur (Demo)"]])
+        d.mitglieder.push({ projekt_id: p.id, user_id: u[0], rolle: u[1], anzeigename: u[2] });
+      d.automatik.push({ projekt_id: a.id, modus: "direkt", letzter_lauf: vor(1), hinweis: "Bereit", heute_laeufe: 3, letzter_fehler: "" },
+        { projekt_id: b.id, modus: "mit_freigabe", letzter_lauf: vor(1), hinweis: "Bereit", heute_laeufe: 1, letzter_fehler: "" });
+      const w = (p, text, status, prioritaet, min, extra = {}) => d.wuensche.push({ id: neu(), projekt_id: p.id, autor: "demo-kunde", text, status, prioritaet,
+        art: "sonstiges", details: {}, anhaenge: [], stelle: null, seite_url: (p.vorschau_url || p.live_url) + "", seite_titel: "Startseite",
+        bearbeiter: status === "in_arbeit" ? "Michele (Automatik)" : "", fortschritt: "", fertig_bis: null, freigegeben: false, erstellt_am: vor(min), geaendert_am: vor(min), ...extra });
+      w(a, "Tausch das Bild vom Hofladen gegen das neue Foto", "rueckfrage", 2, 300);
+      w(a, "Öffnungszeiten am 24.12. nur bis 12 Uhr", "offen", 1, 12);
+      w(a, "Das soll mittig sein", "erledigt", 2, 900);
+      w(b, "Neue Seite für Torten", "zur_freigabe", 2, 120);
+      w(b, "Telefonnummer im Fuß ist falsch", "in_arbeit", 1, 4);
+      const v = (p, anlass, status, min, meldung, ziel) => d.veroeffentlichungen.push({ id: neu(), projekt_id: p.id, anlass, status, commit_hash: Math.random().toString(16).slice(2, 9),
+        ziel, meldung, dateien: 3, zuruecknehmen: "", start: vor(min), ende: vor(min - 1) });
+      v(a, "wunsch", "ok", 880, "Öffnungszeiten mittig", "SFTP ftp.strato.de");
+      v(a, "inhalt", "fehler", 60, "Verbindung abgelehnt (Passwort prüfen)", "SFTP ftp.strato.de");
+      v(b, "freigabe", "ok", 200, "Neue Startseite", "GitHub Pages");
+      schreiben(d);
+    }
   }
 
   let versprechen = null;
