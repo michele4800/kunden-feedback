@@ -27,7 +27,22 @@
         "klein": 640
       },
       "vorschau_url": "https://michele4800.github.io/kunden-slug/"
+    },
+    "baeckerei-muster": {
+      "ordner": "C:/Projekte/baeckerei-muster",
+      "zweig": "main",
+      "veroeffentlichen": true,
+      "ausgabe": ".",
+      "ziel": {
+        "art": "sftp",
+        "host": "ssh.strato.de",
+        "port": 22,
+        "benutzer": "sftp_benutzer",
+        "pfad": "/"
+      },
+      "vorschau_url": "https://www.baeckerei-muster.de/"
     }
   },
-  "_bilder": "Optional je Projekt: Kundenfotos werden als WebP in <ordner> abgelegt (<ziel>.webp und <ziel>-<klein>.webp). Ohne Angabe unverändert unter bilder/."
+  "_bilder": "Optional je Projekt: Kundenfotos werden als WebP in <ordner> abgelegt (<ziel>.webp und <ziel>-<klein>.webp). Ohne Angabe unverändert unter bilder/.",
+  "_ziel": "Veröffentlichen: \"veroeffentlichen\": true → git push (GitHub Pages bzw. Sicherung). \"ziel\" mit art \"sftp\" → zusätzlich per SFTP auf den Server des Kunden; hochgeladen wird der Ordner \"ausgabe\" (relativ zu \"ordner\", z. B. livegang/kombi). Passwort NIE hier, sondern in waechter/.env als KF_ZIEL_<SLUG>_PASSWORT (Slug groß, - wird _) oder KF_ZIEL_<SLUG>_SCHLUESSEL=Pfad zur Schlüsseldatei."
 }

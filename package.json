@@ -5,13 +5,14 @@
   "description": "Wünsche und Änderungen von Kunden direkt auf der Website sammeln – mit Supabase und optionaler Automatik (Wächter).",
   "type": "module",
   "scripts": {
-    "test": "node test/zugriff.test.mjs && node test/fotos.test.mjs && node test/ansicht.test.mjs",
+    "test": "node test/zugriff.test.mjs && node test/fotos.test.mjs && node test/sftp.test.mjs && node test/ansicht.test.mjs",
     "waechter": "node waechter/waechter.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.45.4",
     "puppeteer-core": "24.43.1",
-    "sharp": "^0.33.5"
+    "sharp": "^0.33.5",
+    "ssh2-sftp-client": "12.1.1"
   },
   "devDependencies": {
     "@electric-sql/pglite": "0.2.17"

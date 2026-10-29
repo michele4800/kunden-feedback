@@ -120,6 +120,15 @@ npm run waechter
   Ausgaben: `waechter/waechter.log`. Beenden: Aufgabe beenden und Prozesse `waechter.mjs` beenden.
 - Der Wächter arbeitet nur, wenn der Website-Ordner keine ungespeicherten Änderungen hat (Hinweis im Portal).
 
+**Veröffentlichen je Anbieter** (`waechter/ziele/`)
+- `"veroeffentlichen": true` → `git push` (GitHub Pages bzw. Sicherung des Website-Repos).
+- `"ziel": {"art": "sftp", "host", "port", "benutzer", "pfad"}` → zusätzlich per SFTP zum Hosting des Kunden (STRATO, IONOS, All-Inkl …).
+  Hochgeladen wird der Ordner `ausgabe` (z. B. `livegang/kombi`); nur geänderte Dateien, HTML zuletzt, gelöscht wird nur, was die
+  Automatik selbst hochgeladen hat. Passwort bzw. Schlüsseldatei nur in `waechter/.env` (`KF_ZIEL_<SLUG>_PASSWORT`).
+- Jede Veröffentlichung steht im Dashboard unter „Veröffentlichungen“. Schlägt sie fehl, versucht der Wächter es in der nächsten
+  Runde erneut und zeigt den Fehler im Dashboard. **Zurücknehmen** im Dashboard: der Wächter macht den Commit rückgängig, baut neu
+  und veröffentlicht den Stand davor.
+
 **Sicherheit**
 - Der Wächter meldet sich als normaler Agentur-Benutzer an – die Datenbankregeln gelten auch für ihn.
 - Claude Code läuft nur im Projektordner, nur mit Lesen/Bearbeiten und dem Bau-Befehl, ohne Internet-Werkzeuge, ohne MCP,
@@ -131,7 +140,7 @@ npm run waechter
 ## Tests
 
 ```bash
-npm test                                                    # 19 Tests der Zugriffsregeln (PGlite) + Foto-Ablage
+npm test                                                    # 19 Tests der Zugriffsregeln (PGlite) + Foto-Ablage + SFTP
 node test/claude-probe.mjs <git-url> [bau-befehl …]         # Praxistest mit Claude Code an einer Wegwerf-Kopie
 ```
 

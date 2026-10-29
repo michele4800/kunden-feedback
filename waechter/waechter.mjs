@@ -11,6 +11,7 @@ import { execFileSync } from "node:child_process";
 import { claude as claudeRoh, SYSTEM, SCHEMA_SCHAETZUNG, SCHEMA_ERGEBNIS, wunschText } from "./claude.mjs";
 import { bildHinweis, fotosAblegen } from "./fotos.mjs";
 import { ansichten, seitePfad } from "./ansicht.mjs";
+import { veroeffentlichen, hatZiel } from "./ziele/index.mjs";
 import { readFileSync, existsSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -35,6 +36,7 @@ const INTERVALL = (KONF.intervall_sekunden || 60) * 1000;
 const MAX_PRO_TAG = KONF.max_pro_tag || 20;
 const CLAUDE = ENV.CLAUDE_BEFEHL || "claude";
 const ZAEHLER = path.join(HIER, ".heute.json");
+const MERK = path.join(HIER, ".ziele");  // je Projekt: Stand des Servers (SFTP) und „Veröffentlichen nachholen“
 const claude = (prompt, o) => claudeRoh(prompt, { ...o, befehl: CLAUDE, maxMinuten: KONF.max_minuten || 30 });
 
 const sb = createClient(ENV.KF_URL, ENV.KF_SCHLUESSEL, { auth: { persistSession: false, autoRefreshToken: true } });
@@ -46,13 +48,17 @@ const log = (...a) => {
 };
 const ok = ({ data, error }) => { if (error) throw new Error(error.message); return data; };
 
-function heuteZaehlen(plus = 0) {
+// Läufe heute: gesamt (für die Tagesgrenze) und je Projekt (fürs Dashboard)
+function heuteZaehlen(plus = 0, slug = "") {
   const tag = new Date().toISOString().slice(0, 10);
-  let z = { tag, anzahl: 0 };
+  let z = { tag, anzahl: 0, je: {} };
   try { z = JSON.parse(readFileSync(ZAEHLER, "utf8")); } catch (e) {}
-  if (z.tag !== tag) z = { tag, anzahl: 0 };
-  z.anzahl += plus; writeFileSync(ZAEHLER, JSON.stringify(z));
-  return z.anzahl;
+  if (z.tag !== tag) z = { tag, anzahl: 0, je: {} };
+  z.je = z.je || {};
+  z.anzahl += plus;
+  if (slug) z.je[slug] = (z.je[slug] || 0) + plus;
+  writeFileSync(ZAEHLER, JSON.stringify(z));
+  return slug ? z.je[slug] : z.anzahl;
 }
 
 // ---------- Git ----------
@@ -71,8 +77,55 @@ const zuruecksetzen = (p) => { git(p.ordner, "reset", "--hard", "-q"); git(p.ord
 // ---------- Datenbank-Helfer ----------
 const aendern = (id, patch) => sb.from("wuensche").update(patch).eq("id", id).then(ok);
 const kommentieren = (wunsch_id, text) => sb.from("kommentare").insert({ wunsch_id, text: text.slice(0, 4900) }).then(ok);
-async function lebenszeichen(projekt_id, hinweis) {
-  ok(await sb.from("automatik").update({ letzter_lauf: new Date().toISOString(), hinweis: hinweis.slice(0, 480) }).eq("projekt_id", projekt_id));
+async function lebenszeichen(projekt_id, hinweis, slug) {
+  ok(await sb.from("automatik").update({ letzter_lauf: new Date().toISOString(), hinweis: hinweis.slice(0, 480),
+    ...(slug ? { heute_laeufe: heuteZaehlen(0, slug) } : {}) }).eq("projekt_id", projekt_id));
+}
+
+// ---------- Veröffentlichen mit Protokoll (Tabelle veroeffentlichungen) ----------
+const nachholenDatei = p => path.join(MERK, `${p.slug}.nachholen`);
+// Liefert true, wenn veröffentlicht wurde (oder es kein Ziel gibt). Bei Fehler: Protokoll „fehler“, letzter_fehler fürs
+// Dashboard und eine Merkdatei – die nächste Runde versucht es erneut.
+async function ausliefern(p, projekt, anlass, meldung) {
+  if (!hatZiel(p)) return true;
+  const commit_hash = git(p.ordner, "rev-parse", "HEAD");
+  const zeile = ok(await sb.from("veroeffentlichungen").insert({ projekt_id: projekt.id, anlass, commit_hash, meldung: meldung.slice(0, 1900) }).select("id").single());
+  try {
+    const r = await veroeffentlichen(p, ENV, MERK);
+    ok(await sb.from("veroeffentlichungen").update({ status: "ok", ende: new Date().toISOString(), ziel: r.ziel.slice(0, 200), dateien: r.dateien,
+      meldung: (meldung + (r.meldung ? ` (${r.meldung})` : "")).slice(0, 1900) }).eq("id", zeile.id));
+    ok(await sb.from("automatik").update({ letzter_fehler: "" }).eq("projekt_id", projekt.id));
+    rmSync(nachholenDatei(p), { force: true });
+    log(`[${p.slug}] veröffentlicht (${anlass}): ${r.ziel}, ${r.dateien} Datei(en)`);
+    return true;
+  } catch (e) {
+    const text = `Veröffentlichen fehlgeschlagen: ${e.message}`.slice(0, 900);
+    ok(await sb.from("veroeffentlichungen").update({ status: "fehler", ende: new Date().toISOString(), meldung: `${meldung} – ${e.message}`.slice(0, 1900) }).eq("id", zeile.id));
+    ok(await sb.from("automatik").update({ letzter_fehler: text }).eq("projekt_id", projekt.id));
+    mkdirSync(MERK, { recursive: true }); writeFileSync(nachholenDatei(p), anlass);
+    log(`[${p.slug}] ${text}`);
+    return false;
+  }
+}
+
+// Vom Admin im Dashboard angefragt: Commit rückgängig machen, neu bauen, veröffentlichen
+async function zuruecknehmen(p, projekt, v) {
+  try {
+    git(p.ordner, "checkout", "-q", p.zweig);
+    if (p.veroeffentlichen) git(p.ordner, "pull", "-q", "--ff-only");
+    const eltern = git(p.ordner, "rev-list", "--parents", "-n", "1", v.commit_hash).split(" ").length - 1;
+    git(p.ordner, "revert", "--no-edit", ...(eltern > 1 ? ["-m", "1"] : []), v.commit_hash);
+    bauen(p);
+    if (!sauber(p.ordner)) { git(p.ordner, "add", "-A"); git(p.ordner, "commit", "-q", "-m", `Neu gebaut nach Zurücknehmen von ${v.commit_hash.slice(0, 7)}`); }
+    const geliefert = await ausliefern(p, projekt, "zuruecknehmen", `Zurückgenommen: ${v.meldung}`.slice(0, 300));
+    ok(await sb.from("veroeffentlichungen").update({ zuruecknehmen: geliefert ? "erledigt" : "fehler" }).eq("id", v.id));
+  } catch (e) {
+    try { git(p.ordner, "revert", "--abort"); } catch (e2) {}
+    zuruecksetzen(p);
+    ok(await sb.from("veroeffentlichungen").update({ zuruecknehmen: "fehler" }).eq("id", v.id));
+    ok(await sb.from("automatik").update({ letzter_fehler: `Zurücknehmen fehlgeschlagen: ${e.message}`.slice(0, 900) }).eq("projekt_id", projekt.id));
+    log(`[${p.slug}] Zurücknehmen ${v.commit_hash.slice(0, 7)} fehlgeschlagen: ${e.message}`);
+  }
 }
 
 // ---------- Fotos des Kunden ----------
@@ -200,6 +253,7 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
   if (!fehler && erledigt().length) { try { bauen(p); } catch (e) { fehler = "Bau fehlgeschlagen: " + String(e.stderr || e.message).slice(-300); } }
   const fertig = fehler ? [] : erledigt();
   const nichtsGeaendert = fertig.length && sauber(p.ordner);
+  let geliefert = true;
 
   if (!fertig.length || nichtsGeaendert) {
     zuruecksetzen(p);
@@ -210,16 +264,17 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
     git(p.ordner, "add", "-A");
     const titel = fertig.length > 1 ? `Kundenwünsche (${fertig.length}): ${fertig.map(d => d.w.text.replace(/\s+/g, " ").slice(0, 30)).join(" | ")}` : `Kundenwunsch ${kurz}: ${fertig[0].w.text.replace(/\s+/g, " ").slice(0, 60)}`;
     git(p.ordner, "commit", "-q", "-m", titel.slice(0, 200), "-m", `${fertig.map(d => `- ${(erg.get(nrVon.get(d.w.id)) || {}).zusammenfassung || ""}`).join("\n")}\n\nUmgesetzt vom Wächter (Claude Code).`);
-    if (modus === "direkt") { if (p.veroeffentlichen) git(p.ordner, "push", "-q", "origin", p.zweig); }
+    if (modus === "direkt") geliefert = await ausliefern(p, projekt, "wunsch", titel.slice(0, 300));
     else git(p.ordner, "checkout", "-q", p.zweig);
-    heuteZaehlen(1);
+    heuteZaehlen(1, p.slug);
   }
 
   // Status je Wunsch
   for (const d of aktiv) {
     const e = erg.get(nrVon.get(d.w.id)) || { ergebnis: "fehler", zusammenfassung: fehler || "keine Antwort", frage: "" };
     if (fertig.includes(d) && !nichtsGeaendert) {
-      if (modus === "direkt") await aendern(d.w.id, { status: "erledigt", fortschritt: p.veroeffentlichen ? "Umgesetzt – in der Vorschau in ca. 1–2 Min. sichtbar" : "Umgesetzt", fertig_bis: null });
+      if (modus === "direkt") await aendern(d.w.id, { status: "erledigt", fertig_bis: null,
+        fortschritt: !geliefert ? "Umgesetzt – wird gleich veröffentlicht" : hatZiel(p) ? "Umgesetzt – auf der Website in ca. 1–2 Min. sichtbar" : "Umgesetzt" });
       else await aendern(d.w.id, { status: "zur_freigabe", details: { ...(d.w.details || {}), zweig }, fortschritt: "Umgesetzt – wartet auf Freigabe durch die Agentur", fertig_bis: null });
       await kommentieren(d.w.id, e.zusammenfassung);
     } else if (e.ergebnis === "rueckfrage" || (e.ergebnis === "erledigt" && nichtsGeaendert)) {
@@ -233,7 +288,7 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
 }
 
 // Freigegebene Umsetzungen veröffentlichen. Ein Paket liegt auf einem gemeinsamen Zweig: die Freigabe gilt für alle seine Wünsche.
-async function freigabenVeroeffentlichen(p, liste) {
+async function freigabenVeroeffentlichen(p, projekt, liste) {
   const zweigVon = w => (w.details || {}).zweig || `wunsch-${w.id.slice(0, 8)}`;
   const zweige = [...new Set(liste.filter(w => w.status === "zur_freigabe" && w.freigegeben).map(zweigVon))];
   for (const zweig of zweige) {
@@ -241,12 +296,15 @@ async function freigabenVeroeffentlichen(p, liste) {
     try {
       git(p.ordner, "checkout", "-q", p.zweig);
       if (p.veroeffentlichen) git(p.ordner, "pull", "-q", "--ff-only");
-      git(p.ordner, "merge", "-q", "--no-edit", zweig);
+      const vorMerge = git(p.ordner, "rev-parse", "HEAD");
+      git(p.ordner, "merge", "-q", "--no-ff", "--no-edit", zweig);
       bauen(p);
-      if (!sauber(p.ordner)) { git(p.ordner, "add", "-A"); git(p.ordner, "commit", "-q", "-m", `Neu gebaut nach Wunsch ${zweig}`); }
-      if (p.veroeffentlichen) git(p.ordner, "push", "-q", "origin", p.zweig);
+      // Gebautes in den Merge-Commit aufnehmen: so nimmt „Zurücknehmen“ im Dashboard alles auf einmal zurück
+      if (!sauber(p.ordner)) { git(p.ordner, "add", "-A"); git(p.ordner, "commit", "-q", "--amend", "--no-edit"); }
+      if (git(p.ordner, "rev-parse", "HEAD") === vorMerge) throw new Error("Zweig enthält nichts Neues");
+      const geliefert = await ausliefern(p, projekt, "freigabe", dazu.map(w => w.text.replace(/\s+/g, " ").slice(0, 60)).join(" | ").slice(0, 300));
       git(p.ordner, "branch", "-d", zweig);
-      for (const w of dazu) await aendern(w.id, { status: "erledigt", fortschritt: "Veröffentlicht – in der Vorschau in ca. 1–2 Min. sichtbar" });
+      for (const w of dazu) await aendern(w.id, { status: "erledigt", fortschritt: geliefert ? "Veröffentlicht – auf der Website in ca. 1–2 Min. sichtbar" : "Freigegeben – wird gleich veröffentlicht" });
       log(`[${p.slug}] ${zweig} veröffentlicht (${dazu.length} Wunsch/Wünsche)`);
     } catch (e) {
       try { git(p.ordner, "merge", "--abort"); } catch (e2) {}
@@ -266,12 +324,20 @@ async function runde(meineId) {
       const auto = ok(await sb.from("automatik").select("*").eq("projekt_id", projekt.id).maybeSingle());
       if (!auto) ok(await sb.from("automatik").insert({ projekt_id: projekt.id, modus: "aus" }));
       const modus = (auto || {}).modus || "aus";
-      if (modus === "aus") { await lebenszeichen(projekt.id, "Wächter läuft, Automatik ist aus"); continue; }
-      if (!sauber(p.ordner)) { await lebenszeichen(projekt.id, "Arbeitsordner hat ungespeicherte Änderungen – Automatik wartet"); continue; }
+      if (!sauber(p.ordner)) { await lebenszeichen(projekt.id, "Arbeitsordner hat ungespeicherte Änderungen – Automatik wartet", slug); continue; }
+
+      // Zurücknehmen und fehlgeschlagenes Veröffentlichen erledigen – auch wenn die Automatik aus ist
+      for (const v of ok(await sb.from("veroeffentlichungen").select("*").eq("projekt_id", projekt.id).eq("zuruecknehmen", "angefragt")))
+        if (v.commit_hash) await zuruecknehmen(p, projekt, v);
+      if (existsSync(nachholenDatei(p))) {
+        git(p.ordner, "checkout", "-q", p.zweig);
+        await ausliefern(p, projekt, "manuell", "Nachgeholt nach fehlgeschlagenem Veröffentlichen");
+      }
+      if (modus === "aus") { await lebenszeichen(projekt.id, "Wächter läuft, Automatik ist aus", slug); continue; }
 
       const liste = ok(await sb.from("wuensche").select("*").eq("projekt_id", projekt.id).order("erstellt_am"));
       const namen = Object.fromEntries(ok(await sb.from("mitglieder").select("user_id, anzeigename").eq("projekt_id", projekt.id)).map(m => [m.user_id, m.anzeigename]));
-      await freigabenVeroeffentlichen(p, liste);
+      await freigabenVeroeffentlichen(p, projekt, liste);
 
       // Rückfragen, auf die der Kunde geantwortet hat, wieder einreihen
       for (const w of liste.filter(w => w.status === "rueckfrage")) {
@@ -287,15 +353,15 @@ async function runde(meineId) {
         const text = i === 0 ? "Wird gleich bearbeitet" : `In der Warteschlange – Platz ${i + 1}`;
         if (w.fortschritt !== text) await aendern(w.id, { fortschritt: text });
       }
-      if (heuteZaehlen() >= MAX_PRO_TAG) { await lebenszeichen(projekt.id, `Tagesgrenze von ${MAX_PRO_TAG} Wünschen erreicht – morgen geht es weiter`); continue; }
-      await lebenszeichen(projekt.id, warteschlange.length ? `Bearbeite ${warteschlange.length} Wunsch/Wünsche` : "Keine offenen Wünsche");
+      if (heuteZaehlen() >= MAX_PRO_TAG) { await lebenszeichen(projekt.id, `Tagesgrenze von ${MAX_PRO_TAG} Wünschen erreicht – morgen geht es weiter`, slug); continue; }
+      await lebenszeichen(projekt.id, warteschlange.length ? `Bearbeite ${warteschlange.length} Wunsch/Wünsche` : "Keine offenen Wünsche", slug);
       // Gesammelt abgeschickte Wünsche (gleiches Paket) zusammen umsetzen – wartet kurz, bis alle eingetroffen sind
       const kopf = warteschlange[0];
       const paket = kopf && (kopf.details || {}).paket;
       const ws = paket ? warteschlange.filter(w => (w.details || {}).paket === paket).slice(0, 10) : kopf ? [kopf] : [];
       const unvollstaendig = paket && ws.length < (+kopf.details.paket_anzahl || 0) && Date.now() - Date.parse(kopf.erstellt_am) < 60000;
       if (ws.length && !unvollstaendig) await umsetzen(p, projekt, modus, ws, namen, meineId);
-      await lebenszeichen(projekt.id, "Bereit");
+      await lebenszeichen(projekt.id, "Bereit", slug);
     } catch (e) {
       log(`[${slug}] Fehler:`, e.message);
     }

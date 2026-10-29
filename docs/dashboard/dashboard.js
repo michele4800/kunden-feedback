@@ -1,6 +1,6 @@
 // Agentur-Dashboard: alle Kunden, Wünsche, Veröffentlichungen und der Zustand der Automatik. Nur für Admins.
 (async function () {
-  const V = "20261029a";
+  const V = "20261029b";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
@@ -173,7 +173,7 @@
     const zurueck = v => v.zuruecknehmen === "angefragt" ? `<span class="meta">wird zurückgenommen …</span>`
       : v.zuruecknehmen === "erledigt" ? `<span class="meta">zurückgenommen</span>`
       : v.zuruecknehmen === "fehler" ? `<span class="meta" style="color:var(--fehler)">Zurücknehmen fehlgeschlagen</span>`
-      : v.status === "ok" && v.commit_hash && v.anlass !== "zuruecknehmen" ? `<button class="btn hell klein" data-aktion="zuruecknehmen" data-id="${v.id}">Zurücknehmen</button>` : "";
+      : v.status === "ok" && v.commit_hash && ["wunsch", "inhalt", "freigabe"].includes(v.anlass) ? `<button class="btn hell klein" data-aktion="zuruecknehmen" data-id="${v.id}">Zurücknehmen</button>` : "";
     return `<div class="tabelle"><table class="liste"><thead><tr><th>Zeit</th><th>Kunde</th><th>Anlass</th><th>Status</th><th>Meldung</th><th class="weg">Ziel</th><th></th></tr></thead><tbody>
       ${d.veroeffentlichungen.map(v => `<tr>
         <td>${KF.zeit(v.start)}</td><td>${esc(name[v.projekt_id] || "?")}</td><td>${esc(ANLASS[v.anlass] || v.anlass)}</td>
