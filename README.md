@@ -87,10 +87,10 @@ Mit `?kf-demo` in der Adresse läuft Widget oder Portal auch bei eingetragenem S
    Den service_role-Schlüssel stellt Supabase der Funktion selbst bereit – er wird nirgends eingetragen.
 3. Dashboard öffnen: `https://michele4800.github.io/kunden-feedback/dashboard/` und mit deinem Agentur-Login anmelden.
 
-Neue Kunden legst du danach im Dashboard unter **Kunden verwalten** an (oben die Übersicht aller Kunden mit Zugängen und Einstellungen, darunter das Formular): Benutzername (Pflicht), Passwort (selbst wählen oder
+Neue Kunden legst du danach im Dashboard unter **+ Neue Website** an (Website = Projekt wie der Hühnerhof, Kunde = Login einer Person wie robin): Benutzername (Pflicht), Passwort (selbst wählen oder
 erzeugen lassen), E-Mail freiwillig als Kontakt. Es entstehen Login, Projekt, Mitglieder (der Kunde und alle Agentur-Benutzer,
 also auch die Automatik) und der Automatik-Eintrag; Zugangsdaten, Einbau-Code und der Eintrag für `waechter/projekte.json`
-stehen zum Kopieren bereit. Unter **Zugänge** je Kunde: Passwort neu setzen, Benutzername/E-Mail ändern, weitere Zugänge
+stehen zum Kopieren bereit. Unter **Kunden** (alle Logins über alle Websites): Passwort neu setzen, Benutzername/E-Mail ändern, weitere Zugänge
 hinzufügen oder entfernen. Agentur-Zugänge (die Automatik) sind dort bewusst gesperrt.
 
 ## Neuen Kunden anlegen (ohne Dashboard)

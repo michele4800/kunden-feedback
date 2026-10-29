@@ -1,6 +1,6 @@
-// Agentur-Dashboard: alle Kunden, Wünsche, Veröffentlichungen und der Zustand der Automatik. Nur für Admins.
+// Agentur-Dashboard: alle Websites, ihre Kunden (Logins), Wünsche, Veröffentlichungen und der Zustand der Automatik. Nur für Admins.
 (async function () {
-  const V = "20261030a";
+  const V = "20261030b";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
@@ -11,8 +11,9 @@
   const HOSTING = { keins: "Noch kein Hosting", github: "GitHub Pages", sftp: "SFTP (z. B. STRATO)", netlify: "Netlify" };
   const MODUS = { aus: "Automatik aus", mit_freigabe: "Mit Freigabe", direkt: "Direkt" };
   const ANLASS = { wunsch: "Wunsch", inhalt: "Editor", freigabe: "Freigabe", zuruecknehmen: "Zurückgenommen", manuell: "Manuell" };
-  let ich = null, daten = null, reiter = "kunden", stopp = null, offen = null, offenArt = "", zeichnenNr = 0;
-  // Zugänge je Projekt (aus der Edge Function), offenes Formular („pw:<id>“, „edit:<id>“) und einmalige Meldung (neues Passwort)
+  let ich = null, daten = null, reiter = "websites", stopp = null, offen = null, offenArt = "", zeichnenNr = 0;
+  // Begriffe: Website = Projekt (z. B. Hühnerhof), Kunde = Login einer Person (z. B. robin), die Zugang zu einer Website hat.
+  // Logins je Website (aus der Edge Function), offenes Formular („zg-pw:<uid>:<pid>“) und einmalige Meldung (neues Passwort)
   const zugaenge = {};
   let zgModus = "", zgMeldung = null;
   const DOMAIN = (window.KF_KONFIG || {}).benutzer_domain || "kunden.example.com";
@@ -60,8 +61,9 @@
     }
     if (stopp) stopp();
     let warten = null;
-    stopp = be.beobachtenAlle(() => { clearTimeout(warten); warten = setTimeout(() => { if (!tippt() && !offen && reiter !== "neu") zeichnen(); }, 400); });
+    stopp = be.beobachtenAlle(() => { clearTimeout(warten); warten = setTimeout(() => { if (!tippt() && !offen && !zgModus && !["neu", "kunden"].includes(reiter)) zeichnen(); }, 400); });
     await zeichnen();
+    kundenLaden();
   }
 
   // ---------- Hauptansicht ----------
@@ -74,12 +76,14 @@
     daten = d;
     const offeneW = d.wuensche.filter(w => AKTIV.includes(w.status));
     const fehlerV = d.veroeffentlichungen.filter(v => v.status === "fehler" && Date.now() - new Date(v.start) < 864e5);
-    const reiterListe = [["kunden", `Kunden (${d.projekte.length})`], ["wuensche", `Alle Wünsche (${offeneW.length} offen)`],
-      ["veroeffentlichungen", `Veröffentlichungen${fehlerV.length ? ` (${fehlerV.length} Fehler)` : ""}`], ["neu", "Kunden verwalten"]];
+    const alle = alleKunden(d);
+    const reiterListe = [["websites", `Websites (${d.projekte.length})`], ["kunden", `Kunden${alle ? ` (${new Set(alle.map(z => z.user_id)).size})` : ""}`],
+      ["wuensche", `Alle Wünsche (${offeneW.length} offen)`],
+      ["veroeffentlichungen", `Veröffentlichungen${fehlerV.length ? ` (${fehlerV.length} Fehler)` : ""}`], ["neu", "+ Neue Website"]];
     inhalt.innerHTML = `${be.istDemo ? `<p class="demo">Demo-Modus – Beispieldaten nur in diesem Browser.</p>` : ""}
       ${lage(d)}
       <div class="reiter" role="tablist">${reiterListe.map(([id, t]) => `<button role="tab" aria-selected="${reiter === id}" data-reiter="${id}">${t}</button>`).join("")}</div>
-      <div id="ansicht">${({ kunden: kundenAnsicht, wuensche: wunschAnsicht, veroeffentlichungen: protokollAnsicht, neu: neuAnsicht })[reiter](d)}</div>`;
+      <div id="ansicht">${({ websites: websiteAnsicht, kunden: kundenAnsicht, wuensche: wunschAnsicht, veroeffentlichungen: protokollAnsicht, neu: neuAnsicht })[reiter](d)}</div>`;
   }
 
   function lage(d) {
@@ -93,18 +97,26 @@
       <span><span class="punkt ${laeuft ? "an" : aktiv.length ? "rot" : ""}"></span><b>Automatik ${laeuft ? "läuft" : aktiv.length ? "antwortet nicht" : "überall aus"}</b>
         ${zuletzt ? `<span class="hinweis"> · zuletzt geprüft ${vor(zuletzt)}</span>` : ""}</span>
       <span>Läufe heute: <b>${heute}</b></span>
-      <span>Automatik an bei <b>${aktiv.length}</b> von ${d.projekte.length} Kunden</span>
+      <span>Automatik an bei <b>${aktiv.length}</b> von ${d.projekte.length} Websites</span>
       ${fehler.map(({ a, p }) => `<span class="fehlerzeile">${esc(p ? p.name : "?")}: ${esc(a.letzter_fehler)}</span>`).join("")}
     </div>`;
   }
 
-  // ---------- Kunden ----------
-  function kundenAnsicht(d) {
-    if (!d.projekte.length) return `<p class="leer">Noch keine Kunden. Lege unter „Kunden verwalten“ den ersten an.</p>`;
-    return `<div class="kunden">${d.projekte.map(p => kunde(p, d)).join("")}</div>`;
+  // ---------- Websites ----------
+  function websiteAnsicht(d) {
+    if (!d.projekte.length) return `<p class="leer">Noch keine Website. Lege unter „+ Neue Website“ die erste an.</p>`;
+    return `<div class="kunden">${d.projekte.map(p => website(p, d)).join("")}</div>`;
   }
 
-  function kunde(p, d) {
+  // Wer hat Zugang zu dieser Website? (nur Kunden-Logins, nicht die Automatik)
+  function kundenZeile(p) {
+    const l = zugaenge[p.id];
+    if (!l) return "Kunden: …";
+    const k = l.filter(z => z.rolle === "kunde");
+    return k.length ? "Kunden: " + k.map(z => `<b>${esc(z.anzeigename || z.benutzername)}</b> (${esc(z.benutzername)})`).join(", ") : `<span class="fehler">Noch kein Kunden-Login</span>`;
+  }
+
+  function website(p, d) {
     const w = d.wuensche.filter(x => x.projekt_id === p.id);
     const a = d.automatik.find(x => x.projekt_id === p.id) || { modus: "aus" };
     const v = d.veroeffentlichungen.find(x => x.projekt_id === p.id);
@@ -117,19 +129,19 @@
       <div class="kunde-kopf"><h3 id="k-${p.id}">${esc(p.name)}</h3><span class="etikett">${esc(HOSTING[p.hosting] || HOSTING.keins)}</span></div>
       <div class="zahlen">${zahl("offen", anz("offen"), "offen")}${zahl("in_arbeit", anz("in_arbeit"), "in Arbeit")}${zahl("rueckfrage", anz("rueckfrage"), "Rückfrage")}${zahl("zur_freigabe", anz("zur_freigabe"), "Freigabe")}${wichtig ? zahl("wichtig", wichtig, "wichtig") : ""}</div>
       <div class="meta">${v ? `Zuletzt veröffentlicht: <span class="status ${v.status}">${v.status === "ok" ? "ok" : v.status === "fehler" ? "Fehler" : "läuft"}</span> ${vor(v.ende || v.start)} · ${esc(ANLASS[v.anlass] || v.anlass)}` : "Noch nichts veröffentlicht"}</div>
+      <div class="meta">${kundenZeile(p)}</div>
       <div class="links">
         ${website ? `<a href="${esc(website)}" target="_blank" rel="noopener">${p.live_url ? "Live-Website" : "Vorschau"}<span class="nur-vorleser"> (neues Fenster)</span></a>` : ""}
         ${(p.entwuerfe || []).map(e => `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.name)}<span class="nur-vorleser"> (neues Fenster)</span></a>`).join("")}
         <a href="${portal(p)}">Kundenportal</a>
       </div>
       ${offen === p.id && offenArt === "einstellungen" ? einstellungen(p) : ""}
-      ${offen === p.id && offenArt === "zugaenge" ? zugaengeAnsicht(p) : ""}
       <div class="unten">
         <label class="nur-vorleser" for="m-${p.id}">Automatik für ${esc(p.name)}</label>
         <select id="m-${p.id}" data-modus="${p.id}" title="${esc(ww.text)}">${Object.entries(MODUS).map(([k, t]) => `<option value="${k}"${a.modus === k ? " selected" : ""}>${t}</option>`).join("")}</select>
         <span class="meta"><span class="punkt ${ww.aktiv ? "an" : ""}"></span>${a.modus === "aus" ? "aus" : ww.aktiv ? "aktiv" : "wartet"}</span>
         <span style="display:flex;gap:6px">
-          <button class="btn hell klein" data-aktion="zugaenge" data-id="${p.id}" aria-expanded="${offen === p.id && offenArt === "zugaenge"}">Zugänge</button>
+          <button class="btn hell klein" data-reiter="kunden">Kunden</button>
           <button class="btn hell klein" data-aktion="einstellungen" data-id="${p.id}" aria-expanded="${offen === p.id && offenArt === "einstellungen"}">Einstellungen</button>
         </span>
       </div>
@@ -144,45 +156,54 @@
       <div><label for="l-${p.id}">Live-Adresse</label><input id="l-${p.id}" name="live_url" type="url" value="${esc(p.live_url || "")}" placeholder="https://www.beispiel.de/"></div>
       <div><label for="v-${p.id}">Vorschau-Adresse</label><input id="v-${p.id}" name="vorschau_url" type="url" value="${esc(p.vorschau_url || "")}"></div>
       <div class="breit"><label for="e-${p.id}">Entwürfe (je Zeile: Name | Adresse)</label><textarea id="e-${p.id}" name="entwuerfe">${esc(e)}</textarea></div>
-      <div class="breit"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" name="aktiv"${p.aktiv === false ? "" : " checked"}> Kunde aktiv</label></div>
+      <div class="breit"><label style="display:flex;gap:8px;align-items:center;font-weight:400"><input type="checkbox" name="aktiv"${p.aktiv === false ? "" : " checked"}> Website aktiv</label></div>
       ${p.hosting === "sftp" ? `<p class="hinweis breit">Zugangsdaten zum Server stehen nie hier. Trage sie auf dem Rechner der Automatik in <code>waechter/.env</code> ein: <code>KF_ZIEL_${esc(p.slug.toUpperCase().replace(/-/g, "_"))}_PASSWORT=…</code></p>` : ""}
       <div class="zeile breit"><button class="btn klein">Speichern</button><span class="fehler" role="alert"></span></div>
     </form>`;
   }
 
-  // ---------- Zugänge eines Kunden ----------
-  async function zugaengeLaden(pid) {
-    try { zugaenge[pid] = (await be.verwalten("zugaenge", { projekt_id: pid })).zugaenge; }
-    catch (err) { zugaenge[pid] = []; zgMeldung = { text: err.message, fehler: true }; }
-    if (offen === pid) zeichnen();
+  // ---------- Kunden (Logins) ----------
+  // shortcut: eine Abfrage je Website – bei sehr vielen Websites eine Sammelabfrage in der Edge Function ergänzen
+  async function kundenLaden(neuZeichnen = true) {
+    if (!daten) return;
+    await Promise.all(daten.projekte.map(p => be.verwalten("zugaenge", { projekt_id: p.id })
+      .then(r => { zugaenge[p.id] = r.zugaenge; }, err => { zugaenge[p.id] = []; zgMeldung = { text: err.message, fehler: true }; })));
+    if (neuZeichnen) zeichnen();
   }
 
-  function zugaengeAnsicht(p) {
-    const liste = zugaenge[p.id];
+  // Alle Kunden-Logins mit ihrer Website; null, solange noch nicht alle geladen sind
+  const alleKunden = d => d.projekte.every(p => zugaenge[p.id]) ?
+    d.projekte.flatMap(p => zugaenge[p.id].filter(z => z.rolle === "kunde").map(z => ({ ...z, p }))) : null;
+
+  const feld = (id, name, label, wert = "", extra = "") => `<div><label for="${id}">${label}</label><input id="${id}" name="${name}" type="${name === "passwort" ? "password" : "text"}" value="${esc(wert)}" autocomplete="${name === "passwort" ? "new-password" : "off"}" autocapitalize="none" spellcheck="false" ${extra}></div>`;
+
+  function kundenAnsicht(d) {
+    const liste = alleKunden(d);
     const meld = zgMeldung ? `<div class="zg-meldung${zgMeldung.fehler ? " fehler" : ""}" role="status">${esc(zgMeldung.text)}
       ${zgMeldung.kopie ? `<pre id="zg-kopie">${esc(zgMeldung.kopie)}</pre><button type="button" class="btn hell klein" data-kopieren="zg-kopie">Kopieren</button>
         <p class="hinweis" style="margin:6px 0 0">Wird nur jetzt angezeigt.</p>` : ""}</div>` : "";
-    if (!liste) return `<div class="zugaenge">${meld}<p class="hinweis">Zugänge werden geladen …</p></div>`;
-    const feld = (id, name, label, wert = "", extra = "") => `<div><label for="${id}">${label}</label><input id="${id}" name="${name}" type="${name === "passwort" ? "password" : "text"}" value="${esc(wert)}" autocomplete="${name === "passwort" ? "new-password" : "off"}" autocapitalize="none" spellcheck="false" ${extra}></div>`;
-    return `<div class="zugaenge"><h4>Zugänge</h4>${meld}
-      <ul class="zg-liste">${liste.map(z => {
-        const kunde = z.rolle === "kunde", id = z.user_id;
-        return `<li class="zugang"><div class="zg-kopf"><div><b>${esc(z.anzeigename || z.benutzername)}</b> <span class="etikett">${kunde ? "Kunde" : "Agentur"}</span>
-          <div class="meta">Benutzername: <b>${esc(z.benutzername)}</b>${z.kontakt_email ? ` · ${esc(z.kontakt_email)}` : ""} · ${z.zuletzt ? "zuletzt angemeldet " + vor(z.zuletzt) : "noch nie angemeldet"}</div></div>
-          ${kunde ? `<div class="zg-knoepfe"><button class="btn hell klein" data-aktion="zg-pw" data-uid="${id}" aria-expanded="${zgModus === "zg-pw:" + id}">Passwort</button>
-            <button class="btn hell klein" data-aktion="zg-edit" data-uid="${id}" aria-expanded="${zgModus === "zg-edit:" + id}">Bearbeiten</button>
-            <button class="btn hell klein" data-aktion="zg-weg" data-uid="${id}">Entfernen</button></div>` : ""}</div>
-          ${zgModus === "zg-pw:" + id ? `<form class="zg-form" data-art="pw" data-uid="${id}">${feld("zp-" + id, "passwort", "Neues Passwort (leer = wird erzeugt)", "", 'minlength="10"')}
-            <div class="zeile"><button class="btn klein">Passwort setzen</button><span class="fehler" role="alert"></span></div></form>` : ""}
-          ${zgModus === "zg-edit:" + id ? `<form class="zg-form" data-art="edit" data-uid="${id}">${feld("za-" + id, "anzeigename", "Anzeigename", z.anzeigename)}
-            ${feld("zb-" + id, "benutzername", "Benutzername", z.benutzername, 'required')}${feld("ze-" + id, "email", "E-Mail (freiwillig)", z.kontakt_email)}
-            <div class="zeile"><button class="btn klein">Speichern</button><span class="fehler" role="alert"></span></div></form>` : ""}
-        </li>`; }).join("")}</ul>
-      <form class="zg-form zg-neu" data-art="neu"><b>Weiteren Zugang hinzufügen</b>
-        ${feld("zn-b-" + p.id, "benutzername", "Benutzername", "", 'required placeholder="z. B. sabine"')}${feld("zn-a-" + p.id, "anzeigename", "Anzeigename")}
-        ${feld("zn-e-" + p.id, "email", "E-Mail (freiwillig)")}${feld("zn-p-" + p.id, "passwort", "Passwort (leer = wird erzeugt)", "", 'minlength="10"')}
-        <div class="zeile"><button class="btn klein">Zugang hinzufügen</button><span class="fehler" role="alert"></span></div></form>
-    </div>`;
+    if (!liste) return `${meld}<p class="hinweis">Kunden werden geladen …</p>`;
+    const knopf = (art, z, text) => `<button class="btn hell klein" data-aktion="${art}" data-uid="${z.user_id}" data-pid="${z.p.id}"${art === "zg-weg" ? "" : ` aria-expanded="${zgModus === `${art}:${z.user_id}:${z.p.id}`}"`}>${text}</button>`;
+    const zeile = z => {
+      const k = `${z.user_id}:${z.p.id}`;
+      const form = zgModus === "zg-pw:" + k ? `<form class="zg-form" data-art="pw" data-uid="${z.user_id}" data-pid="${z.p.id}">${feld("zp-" + z.user_id, "passwort", "Neues Passwort (leer = wird erzeugt)", "", 'minlength="10"')}
+            <div class="zeile"><button class="btn klein">Passwort setzen</button><span class="fehler" role="alert"></span></div></form>`
+        : zgModus === "zg-edit:" + k ? `<form class="zg-form" data-art="edit" data-uid="${z.user_id}" data-pid="${z.p.id}">${feld("za-" + z.user_id, "anzeigename", "Anzeigename", z.anzeigename)}
+            ${feld("zb-" + z.user_id, "benutzername", "Benutzername", z.benutzername, "required")}${feld("ze-" + z.user_id, "email", "E-Mail (freiwillig)", z.kontakt_email)}
+            <div class="zeile"><button class="btn klein">Speichern</button><span class="fehler" role="alert"></span></div></form>` : "";
+      return `<tr><td><b>${esc(z.anzeigename || z.benutzername)}</b></td><td>${esc(z.benutzername)}</td><td>${esc(z.p.name)}</td>
+        <td class="weg">${esc(z.kontakt_email || "–")}</td><td class="weg">${z.zuletzt ? vor(z.zuletzt) : "noch nie"}</td>
+        <td><span style="display:flex;gap:6px;flex-wrap:wrap">${knopf("zg-pw", z, "Passwort")}${knopf("zg-edit", z, "Bearbeiten")}${knopf("zg-weg", z, "Entfernen")}</span></td></tr>
+        ${form ? `<tr><td colspan="6">${form}</td></tr>` : ""}`;
+    };
+    return `${meld}<p class="hinweis" style="margin-top:0">Kunden sind die Personen mit Login (z. B. robin). Jeder Kunde hat Zugang zu einer oder mehreren Websites.</p>
+      ${liste.length ? `<div class="tabelle"><table class="liste"><thead><tr><th>Kunde</th><th>Benutzername</th><th>Website</th><th class="weg">E-Mail</th><th class="weg">Zuletzt angemeldet</th><th>Verwalten</th></tr></thead>
+        <tbody>${liste.map(zeile).join("")}</tbody></table></div>` : `<p class="leer">Noch keine Kunden-Logins.</p>`}
+      ${d.projekte.length ? `<form class="zg-form zg-neu karte" data-art="neu" style="margin-top:24px"><b class="breit">Kunden hinzufügen</b>
+        <div><label for="zn-p">Website</label><select id="zn-p" name="projekt_id" required>${d.projekte.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join("")}</select></div>
+        ${feld("zn-b", "benutzername", "Benutzername", "", 'required placeholder="z. B. robin"')}${feld("zn-a", "anzeigename", "Anzeigename")}
+        ${feld("zn-e", "email", "E-Mail (freiwillig)")}${feld("zn-pw", "passwort", "Passwort (leer = wird erzeugt)", "", 'minlength="10"')}
+        <div class="zeile breit"><button class="btn klein">Kunden hinzufügen</button><span class="fehler" role="alert"></span></div></form>` : ""}`;
   }
 
   // ---------- Alle Wünsche ----------
@@ -197,10 +218,10 @@
     return `<div class="filter">
         <div><label for="f-status">Status</label><select id="f-status" data-filter="status">${[["aktiv", "Offen und in Arbeit"], ...Object.entries(KF.STATUS), ["alle", "Alle"]]
           .map(([k, t]) => `<option value="${k}"${filter.status === k ? " selected" : ""}>${t}</option>`).join("")}</select></div>
-        <div><label for="f-projekt">Kunde</label><select id="f-projekt" data-filter="projekt"><option value="">Alle Kunden</option>${d.projekte.map(p => `<option value="${p.id}"${filter.projekt === p.id ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div>
+        <div><label for="f-projekt">Website</label><select id="f-projekt" data-filter="projekt"><option value="">Alle Websites</option>${d.projekte.map(p => `<option value="${p.id}"${filter.projekt === p.id ? " selected" : ""}>${esc(p.name)}</option>`).join("")}</select></div>
         <div style="flex:1"><label for="f-suche">Suche</label><input id="f-suche" type="search" data-filter="suche" value="${esc(filter.suche)}"></div>
       </div>
-      ${liste.length ? `<div class="tabelle"><table class="liste"><thead><tr><th>Kunde</th><th>Status</th><th>Wunsch</th><th class="weg">Seite</th><th class="weg">Eingang</th></tr></thead><tbody>
+      ${liste.length ? `<div class="tabelle"><table class="liste"><thead><tr><th>Website</th><th>Status</th><th>Wunsch</th><th class="weg">Seite</th><th class="weg">Eingang</th></tr></thead><tbody>
         ${liste.map(w => { const p = name[w.projekt_id] || {}; return `<tr>
           <td>${esc(p.name || "?")}</td>
           <td><span class="status ${w.status}">${esc(KF.STATUS[w.status] || w.status)}</span>${w.prioritaet === 1 ? `<div class="wichtig">wichtig</div>` : ""}</td>
@@ -218,7 +239,7 @@
       : v.zuruecknehmen === "erledigt" ? `<span class="meta">zurückgenommen</span>`
       : v.zuruecknehmen === "fehler" ? `<span class="meta" style="color:var(--fehler)">Zurücknehmen fehlgeschlagen</span>`
       : v.status === "ok" && v.commit_hash && ["wunsch", "inhalt", "freigabe"].includes(v.anlass) ? `<button class="btn hell klein" data-aktion="zuruecknehmen" data-id="${v.id}">Zurücknehmen</button>` : "";
-    return `<div class="tabelle"><table class="liste"><thead><tr><th>Zeit</th><th>Kunde</th><th>Anlass</th><th>Status</th><th>Meldung</th><th class="weg">Ziel</th><th></th></tr></thead><tbody>
+    return `<div class="tabelle"><table class="liste"><thead><tr><th>Zeit</th><th>Website</th><th>Anlass</th><th>Status</th><th>Meldung</th><th class="weg">Ziel</th><th></th></tr></thead><tbody>
       ${d.veroeffentlichungen.map(v => `<tr>
         <td>${KF.zeit(v.start)}</td><td>${esc(name[v.projekt_id] || "?")}</td><td>${esc(ANLASS[v.anlass] || v.anlass)}</td>
         <td><span class="status ${v.status}">${v.status === "ok" ? "ok" : v.status === "fehler" ? "Fehler" : "läuft"}</span></td>
@@ -227,36 +248,24 @@
     </tbody></table></div>`;
   }
 
-  // ---------- Kunden verwalten: Übersicht + Kunde anlegen ----------
-  function verwaltenListe(d) {
-    if (!d.projekte.length) return `<div id="verwalten-liste"><p class="leer">Noch keine Kunden.</p></div>`;
-    const knopf = (p, art, text) => `<button class="btn hell klein" data-aktion="${art}" data-id="${p.id}" aria-expanded="${offen === p.id && offenArt === art}">${text}</button>`;
-    return `<div id="verwalten-liste" class="tabelle"><table class="liste"><thead><tr><th>Kunde</th><th>Kurzname</th><th class="weg">Hosting</th><th class="weg">Website</th><th>Verwalten</th></tr></thead><tbody>
-      ${d.projekte.map(p => { const website = p.live_url || p.vorschau_url; return `<tr${p.aktiv === false ? ` class="inaktiv"` : ""}>
-        <td><b>${esc(p.name)}</b>${p.aktiv === false ? ` <span class="etikett">inaktiv</span>` : ""}</td><td>${esc(p.slug)}</td>
-        <td class="weg">${esc(HOSTING[p.hosting] || HOSTING.keins)}</td>
-        <td class="weg">${website ? `<a href="${esc(website)}" target="_blank" rel="noopener">${p.live_url ? "Live" : "Vorschau"}<span class="nur-vorleser"> (neues Fenster)</span></a>` : "–"}</td>
-        <td><span style="display:flex;gap:6px;flex-wrap:wrap">${knopf(p, "zugaenge", "Zugänge")}${knopf(p, "einstellungen", "Einstellungen")}</span></td></tr>
-        ${offen === p.id ? `<tr><td colspan="5">${offenArt === "zugaenge" ? zugaengeAnsicht(p) : einstellungen(p)}</td></tr>` : ""}`; }).join("")}
-    </tbody></table></div>`;
-  }
-
-  function neuAnsicht(d) {
-    return `<h2 style="margin:0 0 10px;font-size:20px">Alle Kunden (${d.projekte.length})</h2>${verwaltenListe(d)}
-    <form class="neu-form karte" id="neu-kunde" style="margin-top:24px">
-      <div class="breit"><h2 style="margin:0 0 4px;font-size:20px">Neuen Kunden anlegen</h2>
-        <p class="hinweis" style="margin:0">Legt den Login des Kunden, das Projekt und die Automatik an. Der Kunde meldet sich mit dem Benutzernamen an. Das Passwort wird nur einmal angezeigt, du kannst es später unter „Zugänge“ jederzeit neu setzen.</p></div>
-      <div><label for="n-name">Name des Kunden</label><input id="n-name" name="name" type="text" required placeholder="Bäckerei Muster"></div>
-      <div><label for="n-slug">Kurzname (für Adressen)</label><input id="n-slug" name="slug" type="text" required pattern="[a-z0-9\\-]{2,60}" placeholder="baeckerei-muster"></div>
-      <div><label for="n-benutzer">Benutzername (Login)</label><input id="n-benutzer" name="benutzername" type="text" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[a-z0-9][a-z0-9._\\-]{1,39}" placeholder="z. B. robin"></div>
-      <div><label for="n-pw">Passwort (leer = wird erzeugt)</label><input id="n-pw" name="passwort" type="password" minlength="10" autocomplete="new-password" spellcheck="false"></div>
-      <div><label for="n-email">E-Mail (freiwillig, nur Kontakt)</label><input id="n-email" name="email" type="email" autocomplete="off"></div>
-      <div><label for="n-anzeige">Anzeigename</label><input id="n-anzeige" name="anzeigename" type="text" placeholder="z. B. Robin (Bäckerei)"></div>
+  // ---------- Neue Website (mit erstem Kunden-Login) ----------
+  function neuAnsicht() {
+    return `<form class="neu-form karte" id="neu-kunde">
+      <div class="breit"><h2 style="margin:0 0 4px;font-size:20px">Neue Website anlegen</h2>
+        <p class="hinweis" style="margin:0">Legt die Website samt Automatik an und dazu den ersten Kunden, der sich mit seinem Benutzernamen anmeldet. Das Passwort wird nur einmal angezeigt; weitere Kunden und neue Passwörter gibt es jederzeit unter „Kunden“.</p></div>
+      <h3 class="breit" style="margin:8px 0 0;font-size:16px">Website</h3>
+      <div><label for="n-name">Name der Website</label><input id="n-name" name="name" type="text" required placeholder="Hühnerhof Schneider"></div>
+      <div><label for="n-slug">Kurzname (für Adressen)</label><input id="n-slug" name="slug" type="text" required pattern="[a-z0-9\\-]{2,60}" placeholder="huehnerhof-schneider"></div>
       <div><label for="n-hosting">Hosting</label><select id="n-hosting" name="hosting">${Object.entries(HOSTING).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></div>
       <div><label for="n-modus">Automatik</label><select id="n-modus" name="modus">${Object.entries(MODUS).map(([k, t]) => `<option value="${k}"${k === "mit_freigabe" ? " selected" : ""}>${t}</option>`).join("")}</select></div>
       <div><label for="n-vorschau">Vorschau-Adresse (optional)</label><input id="n-vorschau" name="vorschau_url" type="url"></div>
       <div><label for="n-live">Live-Adresse (optional)</label><input id="n-live" name="live_url" type="url"></div>
-      <div class="zeile breit"><button class="btn">Kunde anlegen</button><span class="fehler" role="alert"></span></div>
+      <h3 class="breit" style="margin:8px 0 0;font-size:16px">Erster Kunde (Login)</h3>
+      <div><label for="n-benutzer">Benutzername (Login)</label><input id="n-benutzer" name="benutzername" type="text" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[a-z0-9][a-z0-9._\\-]{1,39}" placeholder="z. B. robin"></div>
+      <div><label for="n-pw">Passwort (leer = wird erzeugt)</label><input id="n-pw" name="passwort" type="password" minlength="10" autocomplete="new-password" spellcheck="false"></div>
+      <div><label for="n-email">E-Mail (freiwillig, nur Kontakt)</label><input id="n-email" name="email" type="email" autocomplete="off"></div>
+      <div><label for="n-anzeige">Anzeigename</label><input id="n-anzeige" name="anzeigename" type="text" placeholder="z. B. Robin (Bäckerei)"></div>
+      <div class="zeile breit"><button class="btn">Website anlegen</button><span class="fehler" role="alert"></span></div>
     </form><div id="ergebnis"></div>`;
   }
 
@@ -289,26 +298,26 @@
       try { await navigator.clipboard.writeText(text); t.textContent = "Kopiert"; } catch (err) { t.textContent = "Bitte von Hand markieren und kopieren"; }
       return;
     }
-    if (t.dataset.aktion === "einstellungen" || t.dataset.aktion === "zugaenge") {
-      const art = t.dataset.aktion, zu = offen === t.dataset.id && offenArt === art;
-      offen = zu ? null : t.dataset.id; offenArt = zu ? "" : art; zgModus = ""; zgMeldung = null;
-      if (!zu && art === "zugaenge") { zugaenge[offen] = null; zeichnen(); return zugaengeLaden(offen); }
+    if (t.dataset.aktion === "einstellungen") {
+      const zu = offen === t.dataset.id;
+      offen = zu ? null : t.dataset.id; offenArt = zu ? "" : "einstellungen";
       return zeichnen();
     }
     if (/^zg-/.test(t.dataset.aktion || "")) {
-      const uid = t.dataset.uid, z = (zugaenge[offen] || []).find(x => x.user_id === uid);
+      const uid = t.dataset.uid, pid = t.dataset.pid, z = (zugaenge[pid] || []).find(x => x.user_id === uid), p = daten.projekte.find(x => x.id === pid);
       if (t.dataset.aktion === "zg-weg") {
-        if (!confirm(`${z.anzeigename} (${z.benutzername}) aus diesem Projekt entfernen?\nGehört der Zugang zu keinem anderen Projekt, wird er gelöscht.`)) return;
-        try { await be.verwalten("entfernen", { user_id: uid, projekt_id: offen }); zgMeldung = { text: `${z.anzeigename} wurde entfernt.` }; }
+        if (!confirm(`${z.anzeigename} (${z.benutzername}) von der Website ${p.name} entfernen?\nHat der Kunde keine andere Website, wird sein Login gelöscht.`)) return;
+        try { await be.verwalten("entfernen", { user_id: uid, projekt_id: pid }); zgMeldung = { text: `${z.anzeigename} wurde von ${p.name} entfernt.` }; }
         catch (err) { zgMeldung = { text: err.message, fehler: true }; }
-        return zugaengeLaden(offen);
+        return kundenLaden();
       }
-      zgModus = zgModus === `${t.dataset.aktion}:${uid}` ? "" : `${t.dataset.aktion}:${uid}`; zgMeldung = null;
+      const k = `${t.dataset.aktion}:${uid}:${pid}`;
+      zgModus = zgModus === k ? "" : k; zgMeldung = null;
       return zeichnen();
     }
     if (t.dataset.aktion === "zuruecknehmen") {
       const v = daten.veroeffentlichungen.find(x => x.id === t.dataset.id), p = daten.projekte.find(x => x.id === v.projekt_id);
-      if (!confirm(`Diese Veröffentlichung bei ${p ? p.name : "dem Kunden"} zurücknehmen?\n„${v.meldung}“\n\nDie Automatik stellt den Stand davor wieder her und veröffentlicht ihn.`)) return;
+      if (!confirm(`Diese Veröffentlichung bei ${p ? p.name : "dieser Website"} zurücknehmen?\n„${v.meldung}“\n\nDie Automatik stellt den Stand davor wieder her und veröffentlicht ihn.`)) return;
       t.disabled = true;
       try { await be.zuruecknehmen(v.id); await zeichnen(); } catch (err) { alert(err.message); t.disabled = false; }
     }
@@ -343,7 +352,7 @@
       try { await be.projektSpeichern(f.dataset.projekt, patch); offen = null; await zeichnen(); }
       catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
     } else if (f.matches(".zg-form")) {
-      const x = Object.fromEntries(new FormData(f)), art = f.dataset.art, pid = offen;
+      const x = Object.fromEntries(new FormData(f)), art = f.dataset.art, pid = f.dataset.pid || x.projekt_id;
       knopf.disabled = true;
       try {
         if (art === "pw") {
@@ -354,29 +363,29 @@
           await be.verwalten("aendern", { user_id: f.dataset.uid, anzeigename: x.anzeigename, email: x.email, benutzername: x.benutzername });
           zgMeldung = { text: "Gespeichert." };
         } else {
-          const r = await be.verwalten("zugang", { projekt_id: pid, ...x });
-          zgMeldung = r.vorhanden ? { text: `Den Login ${benutzername(r.login)} gab es schon – er hat jetzt Zugang zu diesem Projekt.` }
-            : { text: "Zugang angelegt", kopie: `Adresse: ${portal(daten.projekte.find(q => q.id === pid))}\nBenutzername: ${benutzername(r.login)}\nPasswort: ${r.passwort}` };
+          const r = await be.verwalten("zugang", x);
+          zgMeldung = r.vorhanden ? { text: `Den Login ${benutzername(r.login)} gab es schon – er hat jetzt Zugang zu dieser Website.` }
+            : { text: "Kunde angelegt", kopie: `Adresse: ${portal(daten.projekte.find(q => q.id === pid))}\nBenutzername: ${benutzername(r.login)}\nPasswort: ${r.passwort}` };
         }
         zgModus = "";
-        await zugaengeLaden(pid);
+        await kundenLaden();
       } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
     } else if (f.id === "neu-kunde") {
       const x = Object.fromEntries(new FormData(f));
       knopf.disabled = true; knopf.textContent = "Wird angelegt …";
       try {
         const r = await be.verwalten("anlegen", x);
-        f.reset(); knopf.disabled = false; knopf.textContent = "Kunde anlegen";
+        f.reset(); knopf.disabled = false; knopf.textContent = "Website anlegen";
         document.getElementById("ergebnis").innerHTML = ergebnis(r, x);
-        // Übersicht oben auffrischen, ohne das Ergebnis (einmaliges Passwort) wegzuwerfen
-        try { daten = await be.uebersicht(); document.getElementById("verwalten-liste").outerHTML = verwaltenListe(daten); } catch (err) {}
+        // Daten auffrischen, ohne das Ergebnis (einmaliges Passwort) wegzuwerfen
+        try { daten = await be.uebersicht(); kundenLaden(false); } catch (err) {}
         document.querySelector(".ergebnis").scrollIntoView({ block: "start" });
-      } catch (err) { meldung.textContent = err.message; knopf.disabled = false; knopf.textContent = "Kunde anlegen"; }
+      } catch (err) { meldung.textContent = err.message; knopf.disabled = false; knopf.textContent = "Website anlegen"; }
     }
   });
 
   // Ohne Live-Verbindung (oder im Demo-Modus) zumindest jede Minute auffrischen
-  setInterval(() => { if (daten && !tippt() && !offen && reiter !== "neu") zeichnen(); }, 60000);
+  setInterval(() => { if (daten && !tippt() && !offen && !zgModus && !["neu", "kunden"].includes(reiter)) zeichnen(); }, 60000);
   be.beiAnmeldung(ereignis => { if (ereignis === "SIGNED_OUT") anmeldung(); });
   start();
 })();
