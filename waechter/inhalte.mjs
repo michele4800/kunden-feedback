@@ -162,15 +162,44 @@ function imgTag(altTag, bild, alt, datei, ordner) {
 // ---------- Anwenden ----------
 // aenderungen: [{ schluessel, wert }] (je Schlüssel die neueste). optionen.bildHolen(pfad) → Buffer (aus dem Speicher von Supabase).
 // Ergebnis je Änderung: { schluessel, ok, meldung }. Schreibt nur Dateien, die sich wirklich ändern.
-export async function inhalteAnwenden(p, aenderungen, { bildHolen, basisUrl = "", titel = "", heute } = {}) {
+export async function inhalteAnwenden(p, aenderungen, { bildHolen, basisUrl = "", basisAdressen = [], projektId = "", titel = "", heute } = {}) {
   const dateien = htmlDateien(p.ordner);
   const verz = bereiche(p.ordner, dateien);
   const texte = new Map(dateien.map(d => [d, readFileSync(path.join(p.ordner, d), "utf8")]));
   const feeds = new Map();  // Datei des feed.xml → Einträge
   const ergebnisse = [];
 
-  for (const { schluessel, wert } of aenderungen) {
+  // ganze Seiten zuerst: sie gehen vom Stand der Datei aus, Änderungen markierter Bereiche setzen darauf auf
+  const reihe = [...aenderungen].sort((a, b) => (b.wert?.art === "seite") - (a.wert?.art === "seite"));
+  for (const { schluessel, wert, seite_url } of reihe) {
     try {
+      // Ganze Seite oder Daten aus dem neuen Editor (waechter/seite.mjs)
+      if (wert && (wert.art === "seite" || wert.art === "daten")) {
+        const s = await import("./seite.mjs");
+        if (wert.art === "daten") {
+          const schemaDatei = path.join(p.ordner, "kf-daten.json");
+          if (!existsSync(schemaDatei)) throw new Error("Diese Website hat keine änderbaren Daten");
+          const schema = JSON.parse(readFileSync(schemaDatei, "utf8"));
+          const datei = path.join(p.ordner, path.normalize(schema.datei || "daten.json"));
+          if (!datei.startsWith(path.resolve(p.ordner) + path.sep)) throw new Error("Ungültige Daten-Datei");
+          writeFileSync(datei, s.datenUebernehmen(readFileSync(datei, "utf8"), schema, wert));
+        } else {
+          const datei = s.dateiZurAdresse(seite_url, basisAdressen.length ? basisAdressen : [basisUrl], dateien);
+          const cssDatei = path.posix.basename(datei).replace(/\.html?$/, "") + ".kf.css";
+          const erg = await s.seiteUebernehmen(readFileSync(path.join(p.ordner, datei), "utf8"), wert, { cssDatei,
+            bildAblegen: async pfad => {
+              if (!bildHolen || !projektId || !String(pfad).startsWith(projektId + "/")) throw new Error("Bild gehört nicht zu diesem Projekt");
+              const b = await bildAblegen(p, "seite", await bildHolen(pfad));
+              const src = relativ(datei, b.gross, p.ordner);
+              return { src, srcset: b.klein ? `${relativ(datei, b.klein, p.ordner)} ${b.kleinBreite}w, ${src} ${b.breite}w` : "", breite: b.breite, hoehe: b.hoehe };
+            } });
+          texte.set(datei, erg.text);
+          const cssPfad = path.join(p.ordner, path.posix.dirname(datei), cssDatei);
+          if (erg.css || existsSync(cssPfad)) writeFileSync(cssPfad, erg.css + "\n");
+        }
+        ergebnisse.push({ schluessel, ok: true, meldung: "" });
+        continue;
+      }
       const b = verz.get(schluessel);
       if (!b) throw new Error("Diesen Bereich gibt es auf der Website nicht (mehr)");
       if (!wert || typeof wert !== "object") throw new Error("Ungültiger Wert");

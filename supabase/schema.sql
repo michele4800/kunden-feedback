@@ -145,7 +145,7 @@ create table if not exists public.inhalte (
   projekt_id          uuid not null references public.projekte(id) on delete cascade,
   schluessel          text not null check (schluessel ~ '^[a-z0-9-]{1,60}$'),
   seite_url           text not null default '' check (length(seite_url) <= 2000),
-  wert                jsonb not null check (jsonb_typeof(wert) = 'object' and length(wert::text) <= 60000),
+  wert                jsonb not null,
   status              text not null default 'neu' check (status in ('neu', 'live', 'fehler', 'ersetzt', 'zurueckgenommen')),
   meldung             text not null default '' check (length(meldung) <= 1000),
   autor               uuid default auth.uid() references auth.users(id) on delete set null,
@@ -154,6 +154,9 @@ create table if not exists public.inhalte (
   geaendert_am        timestamptz not null default now()
 );
 create index if not exists inhalte_projekt on public.inhalte(projekt_id, erstellt_am desc);
+-- Seit dem Baukasten (Version 5) kann ein Wert eine ganze Seite sein: { art: "seite", html, css, basis } – daher bis 600 KB
+alter table public.inhalte drop constraint if exists inhalte_wert_check;
+alter table public.inhalte add constraint inhalte_wert_check check (jsonb_typeof(wert) = 'object' and length(wert::text) <= 600000);
 
 -- ---------- Hilfsfunktionen (security definer, damit RLS-Prüfungen nicht rekursiv werden) ----------
 create or replace function public.ist_admin() returns boolean

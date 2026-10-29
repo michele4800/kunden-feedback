@@ -1,0 +1,364 @@
+// Editor (Baukasten) für Kunden. Das Widget öffnet ihn über den Knopf „Editor“ als Vollbild-iframe über der Website
+// und übergibt in parent.KF_STUDIO_KONTEXT: be (Backend), projekt, KF, text (HTML der Seite, wie im Git), url, BASIS, schliessen().
+// Grundlage ist GrapesJS (docs/vendor, BSD-Lizenz). Veröffentlicht wird über den Wächter (waechter/seite.mjs), ohne KI.
+(async function () {
+  const K = parent.KF_STUDIO_KONTEXT, { be, projekt, KF } = K, esc = KF.esc, SP = window.KF_SPERREN;
+  const $ = s => document.querySelector(s);
+  const SEITE = K.url;
+  const dateiname = (new URL(SEITE).pathname.split("/").pop() || "index.html");
+  const CSS_DATEI = dateiname.replace(/\.html?$/i, "") + ".kf.css";
+  const ENTWURF = `kf-studio:${projekt.id}:${SEITE}`;
+
+  // ---------- Seite zerlegen ----------
+  const { kopf, body } = SP.zerlegen(K.text);
+  const basis = SP.pruefwert(K.text);
+  const { bereiche, html } = SP.sperren(body);
+  const info = bereiche.map(b => {
+    let m = /^<!--\s*hof:(\w+)/i.exec(b);
+    if (m) return { art: "daten", titel: { kopf: "Kopfzeile", fuss: "Fußzeile", woche: "Wochenplan", finder: "Stationen", steckbriefe: "Stationen", fakten: "Öffnungszeiten & Kontakt", chronik: "Chronik" }[m[1]] || "Automatische Angaben" };
+    m = /^<!--\s*kf:([a-z0-9-]+)/i.exec(b);
+    if (m && /art="neuigkeiten"/.test(b.slice(0, b.indexOf("-->")))) return { art: "neuigkeiten", schluessel: m[1], titel: "Neuigkeiten" };
+    return { art: "unsichtbar" };
+  });
+  const absolut = href => new URL(href, SEITE).href;
+  const links = [...kopf.matchAll(/<link\b[^>]*>/gi)].map(m => m[0]).filter(l => /\brel=["']?stylesheet/i.test(l))
+    .map(l => (/\bhref=["']([^"']+)["']/i.exec(l) || [])[1]).filter(Boolean).map(absolut);
+  const eigeneCss = links.find(h => new URL(h).pathname.endsWith("/" + CSS_DATEI));
+  const fremdeCss = links.filter(h => h !== eigeneCss);
+  const kopfStile = [...kopf.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)].map(m => m[1]).join("\n");
+  const bodyKlasse = (/<body\b[^>]*\bclass=["']([^"']*)["']/i.exec(kopf) || [])[1] || "";
+  let kfCss = "";
+  if (eigeneCss) try { const r = await fetch(eigeneCss, { cache: "no-store" }); if (r.ok) kfCss = await r.text(); } catch (e) {}
+
+  // ---------- Oberfläche ----------
+  const IK = {
+    desktop: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="4" width="18" height="12" rx="1.5"/><path d="M8 20h8M12 16v4"/></svg>',
+    tablet: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M11 18h2"/></svg>',
+    handy: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>',
+    zurueck: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg>',
+    vor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/></svg>',
+    auge: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>',
+  };
+  document.body.innerHTML = `<div class="st">
+    <header class="st-leiste">
+      <span class="st-titel" title="${esc(SEITE)}">Editor · ${esc(parent.document.title)}</span>
+      <div class="st-gruppe" role="group" aria-label="Ansicht">
+        <button type="button" data-geraet="desktop" aria-pressed="true" title="Desktop">${IK.desktop}<span class="nur-vorleser">Desktop</span></button>
+        <button type="button" data-geraet="tablet" aria-pressed="false" title="Tablet">${IK.tablet}<span class="nur-vorleser">Tablet</span></button>
+        <button type="button" data-geraet="handy" aria-pressed="false" title="Handy">${IK.handy}<span class="nur-vorleser">Handy</span></button>
+      </div>
+      <div class="st-gruppe" role="group" aria-label="Bearbeiten">
+        <button type="button" data-aktion="zurueck" title="Rückgängig (Strg+Z)" disabled>${IK.zurueck}</button>
+        <button type="button" data-aktion="vor" title="Wiederholen (Strg+Umschalt+Z)" disabled>${IK.vor}</button>
+        <button type="button" data-aktion="vorschau" title="Vorschau ohne Rahmen">${IK.auge}</button>
+      </div>
+      <span class="st-platz"></span>
+      <span class="st-status" role="status" id="st-status">Keine Änderungen</span>
+      <button type="button" class="btn" data-aktion="verwerfen">Verwerfen</button>
+      <button type="button" class="btn haupt" data-aktion="veroeffentlichen">Veröffentlichen</button>
+    </header>
+    <div class="st-mitte">
+      <aside class="st-seite">
+        <div class="st-reiter" role="tablist">
+          <button type="button" role="tab" data-reiter="hinzufuegen" aria-selected="true">Hinzufügen</button>
+          <button type="button" role="tab" data-reiter="gestalten" aria-selected="false">Gestalten</button>
+          <button type="button" role="tab" data-reiter="ebenen" aria-selected="false">Ebenen</button>
+          <button type="button" role="tab" data-reiter="daten" aria-selected="false" hidden>Angaben</button>
+          <button type="button" role="tab" data-reiter="neuigkeiten" aria-selected="false" hidden>Neuigkeiten</button>
+        </div>
+        <div class="st-inhalt">
+          <section data-feld="hinzufuegen"><p class="hinweis">Sektion oder Element auf die Seite ziehen. Auf der Seite: Element anklicken zum Auswählen, Text doppelt anklicken zum Schreiben, Foto doppelt anklicken zum Austauschen.</p><div id="kf-bloecke"></div></section>
+          <section data-feld="gestalten" hidden><p class="hinweis" id="st-geraet-hinweis">Änderungen gelten für alle Geräte.</p><div id="kf-merkmale"></div><div id="kf-stile"></div></section>
+          <section data-feld="ebenen" hidden><p class="hinweis">Reihenfolge der Seite. Ziehen zum Verschieben.</p><div id="kf-ebenen"></div></section>
+          <section data-feld="daten" hidden></section>
+          <section data-feld="neuigkeiten" hidden></section>
+        </div>
+      </aside>
+      <main class="st-leinwand"><div id="kf-leinwand"></div></main>
+    </div>
+    <div class="st-meldung" id="st-meldung" hidden><div role="dialog" aria-modal="true" aria-labelledby="st-m-titel"><h2 id="st-m-titel"></h2><p id="st-m-text"></p><div class="zeile" id="st-m-knoepfe"></div></div></div>
+  </div>
+  <style>.nur-vorleser{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}</style>`;
+
+  // ---------- GrapesJS ----------
+  const editor = grapesjs.init({
+    container: "#kf-leinwand", height: "100%", width: "auto", fromElement: false,
+    components: html, style: kfCss, storageManager: false, protectedCss: "",
+    i18n: { locale: "de", detectLocale: false, messages: { de: window.KF_GJS_DE || {} } },
+    canvas: { styles: fremdeCss, frameContent: `<!DOCTYPE html><html lang="de"><head><base href="${esc(SEITE)}"></head><body></body></html>`,
+      frameStyle: kopfStile + "\nkf-sperre{display:contents}" },
+    deviceManager: { devices: [
+      { id: "desktop", name: "Desktop", width: "" },
+      { id: "tablet", name: "Tablet", width: "768px", widthMedia: "992px" },
+      { id: "handy", name: "Handy", width: "375px", widthMedia: "480px" }] },
+    panels: { defaults: [] },
+    blockManager: { appendTo: "#kf-bloecke", blocks: window.KF_BLOECKE || [] },
+    layerManager: { appendTo: "#kf-ebenen" },
+    selectorManager: { componentFirst: true },
+    traitManager: { appendTo: "#kf-merkmale" },
+    styleManager: { appendTo: "#kf-stile", sectors: [
+      { name: "Anordnung", open: true, properties: ["display", "flex-direction", "flex-wrap", "justify-content", "align-items",
+        { property: "gap", label: "Abstand zwischen Elementen", type: "number", units: ["px", "rem", "%"], default: "0" },
+        { extend: "text-align", label: "Textausrichtung", options: [{ id: "left", label: "links" }, { id: "center", label: "Mitte" }, { id: "right", label: "rechts" }, { id: "justify", label: "Block" }] }] },
+      { name: "Größe und Abstand", open: true, properties: ["width", "max-width", { extend: "min-height", label: "Mindesthöhe" }, "margin", "padding"] },
+      { name: "Schrift", open: false, properties: ["font-size", "font-weight", "line-height", "letter-spacing", "color", "text-transform"] },
+      { name: "Hintergrund", open: false, properties: ["background-color", "background"] },
+      { name: "Rahmen und Ecken", open: false, properties: ["border", "border-radius", "box-shadow", "opacity"] }] },
+    assetManager: { upload: false, uploadFile: hochladen, assets: [] },
+  });
+  editor.getWrapper().addAttributes(bodyKlasse ? { class: bodyKlasse } : {});
+
+  // Gesperrte Stellen: Skripte/Kommentare unsichtbar und unberührbar; Daten und Neuigkeiten anklickbar → Formular
+  function einrichten() {
+    editor.getWrapper().find("kf-sperre").forEach(c => {
+      const b = info[+c.getAttributes()["data-nr"]] || { art: "unsichtbar" };
+      for (const x of c.find("*")) x.set({ selectable: false, hoverable: false, draggable: false, droppable: false, editable: false, removable: false, copyable: false, layerable: false, highlightable: false });
+      if (b.art === "unsichtbar") c.set({ selectable: false, hoverable: false, draggable: false, droppable: false, removable: false, copyable: false, layerable: false, highlightable: false });
+      else c.set({ name: b.titel, droppable: false, copyable: false, editable: false, kfBereich: b });
+    });
+  }
+  // Kopien dürfen keine automatischen Bereiche verdoppeln
+  editor.on("component:clone", k => k.find("kf-sperre").forEach(x => x.remove()));
+
+  // ---------- Bilder ----------
+  const bildPfade = new Map();  // signierte Adresse → Pfad im Speicher
+  async function hochladen(ev) {
+    const dateien = [...((ev.dataTransfer || ev.target || {}).files || [])];
+    for (const f of dateien) {
+      if (!/^image\//.test(f.type)) continue;
+      status("Foto wird hochgeladen …");
+      try {
+        const blob = await KF.verkleinern(f);
+        const d = await be.dateiHochladen(projekt.id, blob, f.name);
+        const url = await be.dateiUrl(d.pfad);
+        bildPfade.set(url, d.pfad);
+        editor.AssetManager.add({ src: url, name: f.name });
+      } catch (e) { alert("Das Foto konnte nicht hochgeladen werden: " + e.message); }
+    }
+    status();
+  }
+
+  // ---------- Leiste ----------
+  const reiter = name => {
+    document.querySelectorAll("[data-reiter]").forEach(b => b.setAttribute("aria-selected", b.dataset.reiter === name));
+    document.querySelectorAll("[data-feld]").forEach(s => s.hidden = s.dataset.feld !== name);
+  };
+  document.querySelectorAll("[data-reiter]").forEach(b => b.addEventListener("click", () => reiter(b.dataset.reiter)));
+  document.querySelectorAll("[data-geraet]").forEach(b => b.addEventListener("click", () => {
+    editor.setDevice(b.dataset.geraet === "desktop" ? "Desktop" : b.dataset.geraet === "tablet" ? "Tablet" : "Handy");
+    document.querySelectorAll("[data-geraet]").forEach(x => x.setAttribute("aria-pressed", x === b));
+    $("#st-geraet-hinweis").textContent = b.dataset.geraet === "desktop" ? "Änderungen gelten für alle Geräte."
+      : `Änderungen gelten nur für ${b.dataset.geraet === "tablet" ? "Tablet und Handy" : "das Handy"} – Desktop bleibt, wie er ist.`;
+  }));
+  const um = editor.UndoManager;
+  const leisteAktualisieren = () => {
+    $('[data-aktion="zurueck"]').disabled = !um.hasUndo();
+    $('[data-aktion="vor"]').disabled = !um.hasRedo();
+    status();
+  };
+  // Änderungen an der Seite selbst zählen erst nach dem Laden (GrapesJS meldet beim Aufbau auch „update“)
+  let bereit = false, seiteGeaendert = false;
+  editor.on("update", () => { if (!bereit) return; seiteGeaendert = true; leisteAktualisieren(); entwurfMerken(); });
+  editor.on("undo redo", leisteAktualisieren);
+  editor.on("component:selected", c => {
+    const b = c.get("kfBereich");
+    if (!b) return reiter("gestalten");
+    if (b.art === "neuigkeiten") { neuigkeitenZeigen(b.schluessel); reiter("neuigkeiten"); }
+    else { reiter("daten"); }
+  });
+
+  const geaendert = () => seiteGeaendert || datenGeaendert || Object.values(nachrichten).some(n => n.geaendert);
+  function status(text) {
+    $("#st-status").textContent = text || (geaendert() ? "Nicht veröffentlichte Änderungen" : "Keine Änderungen");
+  }
+
+  $(".st-leiste").addEventListener("click", async e => {
+    const a = e.target.closest("[data-aktion]")?.dataset.aktion;
+    if (a === "zurueck") um.undo();
+    if (a === "vor") um.redo();
+    if (a === "vorschau") editor.runCommand("core:preview");
+    if (a === "verwerfen") {
+      if (geaendert() && !confirm("Alle Änderungen verwerfen und den Editor schließen?")) return;
+      try { localStorage.removeItem(ENTWURF); } catch (err) {}
+      K.schliessen();
+    }
+    if (a === "veroeffentlichen") veroeffentlichen();
+  });
+  editor.on("run:core:preview", () => { const s = document.createElement("button"); s.className = "btn haupt"; s.id = "st-vorschau-ende"; s.textContent = "Vorschau beenden";
+    Object.assign(s.style, { position: "fixed", top: "12px", right: "12px", zIndex: 20 }); s.onclick = () => editor.stopCommand("core:preview"); document.body.appendChild(s); });
+  editor.on("stop:core:preview", () => $("#st-vorschau-ende")?.remove());
+
+  // ---------- Entwurf im Browser (falls der Tab zugeht) ----------
+  let merkenUhr = null;
+  function entwurfMerken() {
+    clearTimeout(merkenUhr);
+    merkenUhr = setTimeout(() => {
+      try { localStorage.setItem(ENTWURF, JSON.stringify({ basis, zeit: Date.now(), projekt: editor.getProjectData(), daten: datenGeaendert ? datenWerte() : null })); } catch (e) {}
+    }, 800);
+  }
+
+  // ---------- Angaben aus Daten (z. B. Öffnungszeiten in daten.json) ----------
+  let schema = null, daten = null, datenBasis = "", datenGeaendert = false;
+  const wurzel = projekt.vorschau_url || projekt.live_url || "";
+  const lesen = (o, pfad) => pfad.split(".").reduce((x, k) => x == null ? x : x[k], o);
+  async function datenLaden() {
+    const feld = $('[data-feld="daten"]');
+    try {
+      if (!wurzel || new URL(wurzel).origin !== parent.location.origin) throw new Error("andere Adresse");
+      const s = await fetch(new URL("kf-daten.json", wurzel), { cache: "no-store" });
+      if (!s.ok) throw new Error("keine Angaben");
+      schema = await s.json();
+      const t = await (await fetch(new URL(schema.datei || "daten.json", wurzel), { cache: "no-store" })).text();
+      datenBasis = SP.pruefwert(t); daten = JSON.parse(t);
+    } catch (e) {
+      schema = null;
+      feld.innerHTML = `<p class="hinweis">Dieser Bereich wird automatisch aus den Angaben der Website gebaut. Änderungen daran bitte über „KI-Wunsch“ schicken.</p>`;
+      if (info.some(b => b.art === "daten")) $('[data-reiter="daten"]').hidden = false;
+      return;
+    }
+    $('[data-reiter="daten"]').hidden = false;
+    const TAGE = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    const eingabe = (pfad, titel, art) => {
+      const w = lesen(daten, pfad), id = "d-" + pfad.replace(/\W/g, "-");
+      if (art === "woche") return `<div class="feld"><span style="font-weight:600;font-size:14px">${esc(titel)}</span><div class="woche">${TAGE.map((t, i) =>
+        `<label for="${id}-${i + 1}">${t}</label><input id="${id}-${i + 1}" data-pfad="${esc(pfad)}" data-tag="${i + 1}" value="${esc((w || {})[i + 1] || "")}" placeholder="geschlossen" autocomplete="off">`).join("")}</div>
+        <p class="hinweis" style="margin:4px 0 0">Zum Beispiel 09:00-12:00,14:30-17:30. Leer = geschlossen.</p></div>`;
+      return `<div class="feld"><label for="${id}">${esc(titel)}</label><input id="${id}" data-pfad="${esc(pfad)}" value="${esc(w == null ? "" : w)}" autocomplete="off"></div>`;
+    };
+    feld.innerHTML = `<p class="hinweis">Diese Angaben stehen an mehreren Stellen der Website (z. B. Öffnungszeiten, Kontakt). Nach dem Veröffentlichen sind sie überall gleich.</p>
+      ${(schema.felder || []).map(f => {
+        if (!f.liste) return eingabe(f.pfad, f.titel, f.art);
+        const liste = lesen(daten, f.liste) || [];
+        return `<h3 style="margin:16px 0 8px;font-size:16px">${esc(f.titel || "")}</h3>` + liste.map((x, i) => `<fieldset><legend>${esc(x[f.name] || `Eintrag ${i + 1}`)}</legend>
+          ${(f.felder || []).map(u => eingabe(`${f.liste}.${i}.${u.pfad}`, u.titel, u.art)).join("")}</fieldset>`).join("");
+      }).join("")}`;
+    feld.addEventListener("input", () => { datenGeaendert = true; status(); entwurfMerken(); });
+  }
+  function datenWerte() {
+    const werte = {};
+    $('[data-feld="daten"]').querySelectorAll("input[data-pfad]").forEach(i => {
+      if (i.dataset.tag) (werte[i.dataset.pfad] = werte[i.dataset.pfad] || {})[i.dataset.tag] = i.value.trim();
+      else werte[i.dataset.pfad] = i.value.trim();
+    });
+    return werte;
+  }
+
+  // ---------- Neuigkeiten ----------
+  const nachrichten = {};  // schluessel → { liste, geaendert }
+  let verlauf = [];
+  try { verlauf = await be.inhalte(projekt.id); } catch (e) {}
+  for (const b of info) if (b.art === "neuigkeiten" && !nachrichten[b.schluessel]) {
+    const z = verlauf.find(x => x.schluessel === b.schluessel && ["live", "neu"].includes(x.status));
+    nachrichten[b.schluessel] = { liste: (z && z.wert.eintraege) || [], geaendert: false };
+    $('[data-reiter="neuigkeiten"]').hidden = false;
+  }
+  let nachrichtSchluessel = Object.keys(nachrichten)[0], bearbeite = null;
+  const heute = () => new Date().toISOString().slice(0, 10);
+  function neuigkeitenZeigen(schluessel = nachrichtSchluessel) {
+    nachrichtSchluessel = schluessel;
+    const n = nachrichten[schluessel], feld = $('[data-feld="neuigkeiten"]');
+    if (!n) return;
+    const form = e => `<form class="eintrag" data-form="${esc(e.id)}">
+      <div class="feld"><label for="n-titel">Überschrift</label><input id="n-titel" name="titel" required maxlength="200" value="${esc(e.titel || "")}"></div>
+      <div class="feld"><label for="n-datum">Datum</label><input id="n-datum" name="datum" type="date" required value="${esc(e.datum || heute())}"></div>
+      <div class="feld"><label for="n-text">Text</label><textarea id="n-text" name="text" maxlength="4000">${esc(e.text || "")}</textarea></div>
+      <div class="feld"><label for="n-bis">Sichtbar bis (freiwillig)</label><input id="n-bis" name="bis" type="date" value="${esc(e.bis || "")}"></div>
+      <div class="zeile"><button class="btn haupt klein">Übernehmen</button><button type="button" class="btn klein" data-n="abbrechen">Abbrechen</button></div></form>`;
+    feld.innerHTML = `<p class="hinweis">Neuigkeiten erscheinen auf der Seite und im RSS-Feed. Abgelaufene verschwinden von selbst.</p>
+      ${bearbeite && bearbeite.neu ? form(bearbeite) : `<button type="button" class="btn klein" data-n="neu" style="margin-bottom:12px">Neuigkeit hinzufügen</button>`}
+      ${n.liste.map(e => bearbeite && bearbeite.id === e.id ? form(bearbeite) : `<div class="eintrag"><h4>${esc(e.titel)}</h4><p class="meta">${esc(e.datum)}${e.bis ? ` · bis ${esc(e.bis)}` : ""}</p>
+        <div class="zeile"><button type="button" class="btn klein" data-n="aendern" data-id="${esc(e.id)}">Ändern</button><button type="button" class="btn klein" data-n="loeschen" data-id="${esc(e.id)}">Löschen</button></div></div>`).join("")
+        || `<p class="hinweis">Noch keine Neuigkeiten.</p>`}`;
+  }
+  $('[data-feld="neuigkeiten"]').addEventListener("click", e => {
+    const t = e.target.closest("[data-n]"); if (!t) return;
+    const n = nachrichten[nachrichtSchluessel];
+    if (t.dataset.n === "neu") bearbeite = { id: Math.random().toString(36).slice(2, 10), datum: heute(), neu: true };
+    if (t.dataset.n === "aendern") bearbeite = { ...n.liste.find(x => x.id === t.dataset.id) };
+    if (t.dataset.n === "abbrechen") bearbeite = null;
+    if (t.dataset.n === "loeschen" && confirm("Diese Neuigkeit löschen?")) { n.liste = n.liste.filter(x => x.id !== t.dataset.id); n.geaendert = true; status(); }
+    neuigkeitenZeigen();
+  });
+  $('[data-feld="neuigkeiten"]').addEventListener("submit", e => {
+    e.preventDefault();
+    const f = new FormData(e.target), n = nachrichten[nachrichtSchluessel];
+    const x = { ...bearbeite, titel: f.get("titel").trim(), datum: f.get("datum"), text: f.get("text"), bis: f.get("bis") || "" };
+    delete x.neu;
+    n.liste = bearbeite.neu ? [x, ...n.liste] : n.liste.map(y => y.id === x.id ? x : y);
+    n.geaendert = true; bearbeite = null; status(); neuigkeitenZeigen();
+  });
+
+  // ---------- Veröffentlichen ----------
+  const meldung = (titel, text, knoepfe = []) => {
+    $("#st-m-titel").textContent = titel; $("#st-m-text").innerHTML = text;
+    $("#st-m-knoepfe").innerHTML = knoepfe.map((k, i) => `<button type="button" class="btn${i === 0 ? " haupt" : ""}" data-m="${i}">${esc(k[0])}</button>`).join("");
+    $("#st-m-knoepfe").onclick = e => { const i = e.target.closest("[data-m]")?.dataset.m; if (i != null) knoepfe[+i][1](); };
+    $("#st-meldung").hidden = !titel;
+    $("#st-m-knoepfe button")?.focus();
+  };
+  const kurz = s => s.toLowerCase().replace(/\.html?$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "start";
+
+  async function veroeffentlichen() {
+    if (!geaendert()) return meldung("Keine Änderungen", "Es gibt nichts zu veröffentlichen.", [["OK", () => meldung("")]]);
+    const zeilen = [];
+    if (seiteGeaendert) {
+      const platzhalter = editor.getWrapper().find("img").filter(c => /studio\/platzhalter\.svg/.test(c.get("src") || ""));
+      if (platzhalter.length) {
+        editor.select(platzhalter[0]); platzhalter[0].view?.el?.scrollIntoView({ block: "center" });
+        return meldung("Noch Platzhalter-Fotos", `${platzhalter.length === 1 ? "Ein Platzhalter-Foto ist" : platzhalter.length + " Platzhalter-Fotos sind"} noch auf der Seite. Bitte doppelt anklicken und ein eigenes Foto wählen – oder löschen.`, [["OK", () => meldung("")]]);
+      }
+      for (const c of editor.getWrapper().find("img")) { const p = bildPfade.get(c.get("src")); if (p) c.addAttributes({ "data-kf-bild": p }); }
+      const h = editor.getHtml().replace(/^\s*<body\b[^>]*>/i, "").replace(/<\/body>\s*$/i, "");
+      const css = editor.getCss({ avoidProtected: true }) || "";
+      if (h.length + css.length > 480000) return meldung("Seite zu groß", "Die Seite ist zu umfangreich zum Speichern. Bitte große Bereiche entfernen.", [["OK", () => meldung("")]]);
+      zeilen.push({ schluessel: "seite-" + kurz(new URL(SEITE).pathname.replace(/^\//, "") || "index"), wert: { art: "seite", html: h, css, basis } });
+    }
+    if (datenGeaendert && schema) zeilen.push({ schluessel: "daten", wert: { art: "daten", werte: datenWerte(), basis: datenBasis } });
+    for (const [schluessel, n] of Object.entries(nachrichten)) if (n.geaendert) zeilen.push({ schluessel, wert: { eintraege: n.liste } });
+
+    meldung("Wird veröffentlicht …", "Eure Änderungen werden gespeichert und auf die Website gebracht. Das dauert meist ein bis zwei Minuten.");
+    const ids = [];
+    try {
+      for (const z of zeilen) ids.push((await be.inhaltAnlegen({ projekt_id: projekt.id, seite_url: SEITE, ...z })).id);
+    } catch (e) {
+      return meldung("Nicht gespeichert", `<span class="fehler">${esc(e.message)}</span>`, [["Schließen", () => meldung("")]]);
+    }
+    try { localStorage.removeItem(ENTWURF); } catch (e) {}
+    const start = Date.now();
+    const warten = async () => {
+      let liste = [];
+      try { liste = (await be.inhalte(projekt.id)).filter(z => ids.includes(z.id)); } catch (e) {}
+      const offen = liste.filter(z => z.status === "neu");
+      const fehler = liste.filter(z => z.status === "fehler");
+      if (liste.length === ids.length && !offen.length) {
+        if (fehler.length) return meldung("Nicht veröffentlicht", fehler.map(z => `<span class="fehler">${esc(z.meldung || "Unbekannter Fehler")}</span>`).join("<br>"),
+          [["Seite neu laden", () => parent.location.reload()], ["Weiter bearbeiten", () => meldung("")]]);
+        seiteGeaendert = false; datenGeaendert = false; Object.values(nachrichten).forEach(n => n.geaendert = false); status();
+        return meldung("Veröffentlicht", "Die Änderung ist übernommen. Die Website zeigt sie in etwa einer Minute – danach die Seite neu laden.",
+          [["Editor schließen", () => K.schliessen()], ["Weiter bearbeiten", () => meldung("")]]);
+      }
+      if (Date.now() - start > 10 * 60000) return meldung("Dauert länger", "Die Automatik hat die Änderung noch nicht übernommen. Sie ist gespeichert und wird veröffentlicht, sobald die Automatik läuft.",
+        [["Editor schließen", () => K.schliessen()]]);
+      setTimeout(warten, 3000);
+    };
+    warten();
+  }
+
+  // ---------- Start ----------
+  editor.on("load", async () => {
+    einrichten();
+    await datenLaden();
+    neuigkeitenZeigen();
+    let e = null;
+    try { e = JSON.parse(localStorage.getItem(ENTWURF) || "null"); } catch (err) {}
+    const weiter = e && e.basis === basis && confirm("Es gibt eine nicht veröffentlichte Bearbeitung dieser Seite. Dort weitermachen?");
+    if (weiter) {
+      editor.loadProjectData(e.projekt); einrichten();
+      if (e.daten) for (const [pfad, w] of Object.entries(e.daten)) $('[data-feld="daten"]').querySelectorAll(`input[data-pfad="${CSS.escape(pfad)}"]`).forEach(i => { i.value = i.dataset.tag ? (w[i.dataset.tag] || "") : w; datenGeaendert = true; });
+    } else if (e) { try { localStorage.removeItem(ENTWURF); } catch (err) {} }
+    um.clear();
+    seiteGeaendert = !!(weiter && e.projekt);  // wiederhergestellte Bearbeitung gilt als Änderung
+    bereit = true;
+    leisteAktualisieren();
+  });
+})().catch(e => { console.error(e); document.body.innerHTML = `<p style="padding:24px;font:16px system-ui">Der Editor konnte nicht geladen werden: ${String(e.message).replace(/</g, "&lt;")}</p><p style="padding:0 24px"><button onclick="parent.KF_STUDIO_KONTEXT.schliessen()">Schließen</button></p>`; });

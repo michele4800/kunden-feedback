@@ -104,12 +104,32 @@ hinzufügen oder entfernen. Agentur-Zugänge (die Automatik) sind dort bewusst g
    ```
 4. Dem Kunden schicken: Website-Link, E-Mail und Passwort. Er kann das Passwort im Portal über „Passwort vergessen?“ selbst ändern.
 
-## Editor für Kunden
+## Editor für Kunden (Baukasten)
 
-Auf jeder Seite mit markierten Bereichen erscheint links neben „KI-Wunsch“ der Knopf **Editor**. Der Kunde ändert dort direkt
-auf der Seite und klickt **Veröffentlichen**; der Wächter übernimmt die Änderung **ohne KI** (zählt nicht zur Tagesgrenze),
-baut, committet und veröffentlicht – auch wenn die Automatik für Wünsche aus ist. Jede Änderung steht im Portal unter
-„Bearbeitet“ und im Dashboard unter „Veröffentlichungen“ (mit Zurücknehmen).
+Auf jeder Seite erscheint links neben „KI-Wunsch“ der Knopf **Editor**. Er öffnet einen Vollbild-Baukasten
+(`docs/studio/`, Grundlage [GrapesJS](https://grapesjs.com) 0.23.8, BSD-Lizenz, lokal in `docs/vendor/`) direkt über der Seite:
+
+- **Hinzufügen**: Sektionen (Über uns, Angebot, Kontakt, Text+Bild, Galerie, Zitat, Aufruf) und Elemente per Drag-and-Drop.
+- **Gestalten**: Abstände, Größen, Schrift, Farben, Rahmen fürs ausgewählte Element. Oben Desktop / Tablet / Handy –
+  auf Tablet oder Handy gesetzte Werte gelten nur dort (Media Query), Desktop bleibt.
+- **Ebenen**: Aufbau der Seite, Reihenfolge per Ziehen. Rückgängig/Wiederholen, Vorschau.
+- **Angaben**: Felder aus `kf-daten.json` der Website (z. B. Öffnungszeiten, Telefon in `daten.json`). Ein Klick auf einen
+  automatisch gebauten Bereich der Seite öffnet sie. Der Wächter schreibt nur die dort erlaubten Felder.
+- **Neuigkeiten**: Einträge für `<!-- kf:… art="neuigkeiten" -->` (mit RSS-Feed).
+
+Beim **Veröffentlichen** entstehen Zeilen in `inhalte` (`wert.art = "seite"` bzw. `"daten"`). Der Wächter (`waechter/seite.mjs`)
+übernimmt sie **ohne KI** (zählt nicht zur Tagesgrenze), baut, committet und veröffentlicht – auch wenn die Automatik für Wünsche aus ist:
+
+- Der Editor arbeitet auf dem Quelltext der Seite (so, wie er auf der **Vorschau-Adresse** liegt). Hat sich die Datei inzwischen
+  geändert (z. B. durch einen KI-Wunsch), lehnt der Wächter ab: „bitte neu laden“.
+- Automatisch gebaute Bereiche (`<!-- hof:… -->`, Neuigkeiten), Skripte und Kommentare werden Zeichen für Zeichen wieder eingesetzt
+  (`docs/sperren.js`, von Editor und Wächter gemeinsam genutzt). Verschieben und Löschen geht, Verdoppeln nicht.
+- HTML wird nach einer Positivliste bereinigt (kein Skript, keine Ereignisse, keine `javascript:`-Adressen, keine Formulare/iframes).
+  `<head>` und `<body>`-Tag bleiben aus der Datei. Stile des Kunden landen in `<seite>.kf.css` neben der Seite.
+- Neue Fotos werden als WebP im Bilder-Ordner abgelegt; nur Dateien aus dem eigenen Projekt.
+
+Jede Änderung steht im Portal unter „Bearbeitet“ und im Dashboard unter „Veröffentlichungen“ (mit Zurücknehmen).
+Der ältere Marker-Editor (`docs/editor.js`, Bereiche unten) wird nicht mehr geöffnet; seine Marker bleiben gültig.
 
 Bereiche markieren (im HTML der Website, Beispiel: `docs/beispiel/index.html`):
 

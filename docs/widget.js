@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261030c";
+  const V = "20261030d";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -91,6 +91,7 @@
 .kf-knopf[hidden]{display:none}
 .kf-knopf[hidden]{display:none}
 .kf-bearbeiten-knopf{right:var(--kf-ed-rechts,150px);background:#2f6f8a}
+.kf-studio{position:fixed;inset:0;width:100%;height:100%;border:0;z-index:2147483001;background:#f4f4f2}
 .kf-knopf:focus-visible,.kf *:focus-visible,.kf-markieren button:focus-visible{outline:3px solid #2f6f8a;outline-offset:2px}
 .kf-schiebt{outline:2px solid #2f6f8a!important;outline-offset:3px;cursor:grab!important;touch-action:none;user-select:none}
 .kf-schiebt:active{cursor:grabbing!important}
@@ -204,9 +205,8 @@
     const fehlerZeigen = e => { console.error(e); dlg.innerHTML = rahmen("Wünsche", "", `<p>Das Fenster konnte nicht geladen werden. Bitte die Seite neu laden.</p><button type="button" class="kf-btn" onclick="location.reload()">Seite neu laden</button>`); };
     knopf.addEventListener("click", öffnen);
 
-    // Editor: nur auf Seiten mit markierten Bereichen (<!-- kf:… -->). Ohne Anmeldung führt der Knopf zur Anmeldung.
-    const hatBereiche = (() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT); while (w.nextNode()) if (/^\s*kf:[a-z0-9-]/.test(w.currentNode.data)) return true; return false; })();
-    if (hatBereiche) {
+    // Editor (Baukasten, docs/studio/): Vollbild-iframe über der Seite. Ohne Anmeldung führt der Knopf zur Anmeldung.
+    {
       const bearbeitenKnopf = document.createElement("button");
       bearbeitenKnopf.type = "button"; bearbeitenKnopf.className = "kf-knopf kf-bearbeiten-knopf"; bearbeitenKnopf.textContent = "Editor";
       document.body.appendChild(bearbeitenKnopf);
@@ -218,9 +218,22 @@
         try {
           projekt = projekt || await be.projekt(SLUG);
           if (!projekt) throw new Error("Für dieses Konto ist hier kein Projekt freigegeben.");
-          if (!KF.editor) await laden(BASIS + "editor.js");
-          await KF.editor(be, projekt);
-          bearbeitenKnopf.hidden = true;
+          // Die Seite so holen, wie sie im Git steht (der Editor arbeitet auf dem Quelltext, nicht auf dem veränderten DOM)
+          const r = await fetch(location.href.split("#")[0], { cache: "no-store" });
+          if (!r.ok) throw new Error("Die Seite konnte nicht geladen werden.");
+          const text = await r.text();
+          const rahmen = document.createElement("iframe");
+          const ueberlauf = document.documentElement.style.overflow;
+          window.KF_STUDIO_KONTEXT = { be, projekt, KF, text, url: location.origin + location.pathname, BASIS,
+            schliessen() { rahmen.remove(); document.documentElement.style.overflow = ueberlauf; knopf.hidden = bearbeitenKnopf.hidden = false; bearbeitenKnopf.disabled = false; bearbeitenKnopf.focus(); } };
+          const d = n => `${BASIS}${n}?v=${V}`;
+          rahmen.className = "kf-studio"; rahmen.title = "Editor";
+          rahmen.srcdoc = `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Editor</title><link rel="stylesheet" href="${d("vendor/grapes.min.css")}"><link rel="stylesheet" href="${d("studio/studio.css")}"></head>
+<body><p style="padding:24px;font:16px system-ui">Editor wird geladen …</p><script>window.KF_STUDIO_BASIS=${JSON.stringify(BASIS)}<\/script>${["vendor/grapes.min.js", "vendor/grapes.de.js", "sperren.js", "studio/bloecke.js", "studio/studio.js"].map(n => `<script src="${d(n)}"><\/script>`).join("")}</body></html>`;
+          document.documentElement.style.overflow = "hidden";
+          document.body.appendChild(rahmen);
+          knopf.hidden = bearbeitenKnopf.hidden = true;
+          rahmen.focus();
         } catch (e) { alert(e.message); bearbeitenKnopf.disabled = false; }
       });
     }

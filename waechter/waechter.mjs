@@ -139,9 +139,11 @@ async function inhalteVeroeffentlichen(p, projekt) {
   if (p.veroeffentlichen) { try { git(p.ordner, "pull", "-q", "--ff-only"); } catch (e) { log(`[${p.slug}] pull vor Inhalten: ${e.message}`); } }
   let erg;
   try {
-    erg = await inhalteAnwenden(p, liste.map(z => ({ schluessel: z.schluessel, wert: z.wert })), {
+    erg = await inhalteAnwenden(p, liste.map(z => ({ schluessel: z.schluessel, wert: z.wert, seite_url: z.seite_url })), {
       bildHolen: async pfad => Buffer.from(await ok(await sb.storage.from("anhaenge").download(pfad)).arrayBuffer()),
-      basisUrl: projekt.live_url || p.vorschau_url || projekt.vorschau_url || "", titel: projekt.name, heute });
+      basisUrl: projekt.live_url || p.vorschau_url || projekt.vorschau_url || "", titel: projekt.name, heute,
+      // Seiten werden auf der Vorschau bearbeitet: dort liegen die Quelldateien so, wie sie im Git stehen
+      basisAdressen: [projekt.vorschau_url || p.vorschau_url || projekt.live_url], projektId: projekt.id });
     bauen(p);
   } catch (e) {
     zuruecksetzen(p);
