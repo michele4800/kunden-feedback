@@ -76,6 +76,8 @@ span.kf-feld{display:inline}
 @media (max-width:600px){.kf-ed-panel{top:auto;bottom:140px;height:58vh;right:8px;left:8px;width:auto}.kf-ed-leiste{bottom:74px;border-radius:12px}}
 @media (prefers-reduced-motion:reduce){.kf-feld{transition:none}}`;
     document.head.appendChild(css);
+    // Websites können damit im Bearbeiten-Modus z. B. leere Bereiche einblenden (html.kf-ed-an)
+    document.documentElement.classList.add("kf-ed-an");
 
     // ---------- Bereiche einrahmen ----------
     for (const b of bereiche) {
