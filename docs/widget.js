@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261030b";
+  const V = "20261030c";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -90,8 +90,7 @@
 .kf-knopf{position:fixed;right:16px;bottom:16px;z-index:2147483000;font:600 15px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#1b1b19;color:#fff;border:0;border-radius:999px;padding:13px 18px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.28);display:flex;gap:8px;align-items:center}
 .kf-knopf[hidden]{display:none}
 .kf-knopf[hidden]{display:none}
-.kf-bearbeiten-knopf{right:auto;left:50%;transform:translateX(-50%);background:#2f6f8a}
-@media (max-width:520px){.kf-bearbeiten-knopf{left:16px;transform:none}}
+.kf-bearbeiten-knopf{right:var(--kf-ed-rechts,150px);background:#2f6f8a}
 .kf-knopf:focus-visible,.kf *:focus-visible,.kf-markieren button:focus-visible{outline:3px solid #2f6f8a;outline-offset:2px}
 .kf-schiebt{outline:2px solid #2f6f8a!important;outline-offset:3px;cursor:grab!important;touch-action:none;user-select:none}
 .kf-schiebt:active{cursor:grabbing!important}
@@ -195,7 +194,7 @@
 
     const knopf = document.createElement("button");
     knopf.type = "button"; knopf.className = "kf-knopf"; knopf.setAttribute("aria-haspopup", "dialog");
-    knopf.textContent = "Wünsche";
+    knopf.textContent = "KI-Wunsch";
     const dlg = document.createElement("dialog");
     dlg.className = "kf"; dlg.setAttribute("aria-labelledby", "kf-titel");
     document.body.append(knopf, dlg, leiste);
@@ -209,8 +208,10 @@
     const hatBereiche = (() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT); while (w.nextNode()) if (/^\s*kf:[a-z0-9-]/.test(w.currentNode.data)) return true; return false; })();
     if (hatBereiche) {
       const bearbeitenKnopf = document.createElement("button");
-      bearbeitenKnopf.type = "button"; bearbeitenKnopf.className = "kf-knopf kf-bearbeiten-knopf"; bearbeitenKnopf.textContent = "Bearbeiten";
+      bearbeitenKnopf.type = "button"; bearbeitenKnopf.className = "kf-knopf kf-bearbeiten-knopf"; bearbeitenKnopf.textContent = "Editor";
       document.body.appendChild(bearbeitenKnopf);
+      // Editor sitzt links neben „KI-Wunsch“; dessen Breite ändert sich mit dem Zähler
+      new ResizeObserver(() => document.documentElement.style.setProperty("--kf-ed-rechts", (16 + knopf.offsetWidth + 10) + "px")).observe(knopf);
       bearbeitenKnopf.addEventListener("click", async () => {
         if (!(await be.sitzung())) { nachAnmeldung = "bearbeiten"; return öffnen(); }
         bearbeitenKnopf.disabled = true;
@@ -637,11 +638,11 @@
     // Zähler am Knopf: offene Wünsche auf dieser Seite
     async function zaehlen() {
       try {
-        if (!(await be.sitzung())) { knopf.textContent = "Wünsche"; return; }
+        if (!(await be.sitzung())) { knopf.textContent = "KI-Wunsch"; return; }
         projekt = projekt || await be.projekt(SLUG);
         if (!projekt) return;
         const n = (await be.wuensche(projekt.id)).filter(w => urlPfad(w.seite_url) === SEITE && !["erledigt", "abgelehnt"].includes(w.status)).length;
-        knopf.innerHTML = "Wünsche" + (n ? `<span class="kf-zahl" aria-label="${n} offen">${n}</span>` : "");
+        knopf.innerHTML = "KI-Wunsch" + (n ? `<span class="kf-zahl" aria-label="${n} offen">${n}</span>` : "");
         if (!stopp) stopp = be.beobachten(projekt.id, () => { if (offen && !tippt()) zeichnen(); zaehlen(); });
       } catch (e) {}
     }

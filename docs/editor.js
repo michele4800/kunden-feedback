@@ -1,4 +1,4 @@
-// Editor für Kunden: markierte Bereiche der Website direkt bearbeiten. Wird vom Widget nachgeladen („Bearbeiten“).
+// Editor für Kunden: markierte Bereiche der Website direkt bearbeiten. Wird vom Widget nachgeladen („Editor“).
 // Markierung im Website-Code:  <!-- kf:schluessel art="text" titel="Überschrift oben" -->…<!-- /kf:schluessel -->
 // art: text · mehrzeilig · bild · link · neuigkeiten. Änderungen sind bis „Veröffentlichen“ nur eine Vorschau in diesem Browser;
 // danach legt der Editor je Bereich eine Zeile in „inhalte“ an, der Wächter übernimmt sie ohne KI und veröffentlicht.

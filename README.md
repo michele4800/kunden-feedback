@@ -17,10 +17,10 @@ Kunde (Website + Widget) ──► Supabase (EU) ◄── Portal (Kunde & Agent
 | Ordner | Inhalt |
 |---|---|
 | `docs/feedback.js` | Kleiner **Lader** für jede Kunden-Website, holt immer die aktuelle `widget.js` |
-| `docs/widget.js` | **Widget**: Knopf „Wünsche“, Anmeldung, Werkzeuge (siehe unten), Verlauf, Live-Status |
+| `docs/widget.js` | **Widget**: Knopf „KI-Wunsch“, Anmeldung, Werkzeuge (siehe unten), Verlauf, Live-Status |
 | `docs/dashboard/` | **Dashboard** für dich (Admin): alle Kunden, Wünsche, Veröffentlichungen, Zustand der Automatik, Kunden anlegen |
 | `docs/portal/` | **Portal**: alle Wünsche mit Filter, Status, Restzeit, Antworten, Fragen, Freigabe, Export für Claude |
-| `docs/editor.js` | **Editor**: Knopf „Bearbeiten“ auf Seiten mit markierten Bereichen – Text, Bild, Link, Neuigkeiten direkt ändern |
+| `docs/editor.js` | **Editor**: Knopf „Editor“ (links neben „KI-Wunsch“) auf Seiten mit markierten Bereichen – Text, Bild, Link, Neuigkeiten direkt ändern |
 | `docs/beispiel/` | Beispiel-Website mit markierten Bereichen (Vorlage für neue Kundenseiten, Test des Editors) |
 | `docs/backend.js` | Gemeinsame Schicht für Supabase und den Demo-Modus |
 | `docs/konfig.js` | Supabase-Adresse und öffentlicher Schlüssel (leer = Demo-Modus) |
@@ -106,7 +106,7 @@ hinzufügen oder entfernen. Agentur-Zugänge (die Automatik) sind dort bewusst g
 
 ## Editor für Kunden
 
-Auf jeder Seite mit markierten Bereichen erscheint neben „Wünsche“ der Knopf **Bearbeiten**. Der Kunde ändert dort direkt
+Auf jeder Seite mit markierten Bereichen erscheint links neben „KI-Wunsch“ der Knopf **Editor**. Der Kunde ändert dort direkt
 auf der Seite und klickt **Veröffentlichen**; der Wächter übernimmt die Änderung **ohne KI** (zählt nicht zur Tagesgrenze),
 baut, committet und veröffentlicht – auch wenn die Automatik für Wünsche aus ist. Jede Änderung steht im Portal unter
 „Bearbeitet“ und im Dashboard unter „Veröffentlichungen“ (mit Zurücknehmen).

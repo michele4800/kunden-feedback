@@ -89,7 +89,7 @@
     return "";
   }
   function inhalteAnsicht(inhalte) {
-    return `<p class="hinweis">Was auf der Website mit „Bearbeiten“ geändert wurde – neueste zuerst. Zurücknehmen kann die Agentur.</p>
+    return `<p class="hinweis">Was auf der Website mit dem „Editor“ geändert wurde – neueste zuerst. Zurücknehmen kann die Agentur.</p>
       <ul class="liste">${inhalte.map(z => { const [text, klasse] = INHALT_STATUS[z.status] || [z.status, ""]; return `<li class="w">
         <div class="w-kopf"><strong>${esc(z.schluessel)}</strong><span class="status ${klasse}">${esc(text)}</span></div>
         <p class="text">${esc(inhaltKurz(z.wert))}</p>
@@ -188,7 +188,7 @@
 
   function neuAnsicht() {
     return `<form class="karte" data-form="neu"><label for="n-text" style="margin-top:0">Was soll anders sein?</label>
-      <textarea id="n-text" maxlength="5000" required placeholder="Am besten direkt auf der Website über den Knopf „Wünsche“ – dann ist die Seite gleich dabei. Hier geht es für allgemeine Wünsche."></textarea>
+      <textarea id="n-text" maxlength="5000" required placeholder="Am besten direkt auf der Website über den Knopf „KI-Wunsch“ – dann ist die Seite gleich dabei. Hier geht es für allgemeine Wünsche."></textarea>
       <label for="n-seite">Seite (optional)</label><input id="n-seite" type="text" placeholder="z. B. Startseite">
       <div class="zeile"><button class="btn">Wunsch absenden</button></div><p class="fehler" role="alert"></p></form>`;
   }
