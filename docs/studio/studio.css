@@ -77,3 +77,26 @@ legend{font-weight:650;padding:0 4px}
   .st-titel{display:none}
 }
 .gjs-trt-trait__wrp-id{display:none}  /* technische ID ausblenden */
+
+/* Reiter „Seiten“: Register → Abschnitte → Inhalte */
+.baum,.baum-abschnitte,.baum-inhalte{list-style:none;margin:0;padding:0}
+.baum-titel{font-size:14px;color:var(--leise);margin:18px 0 6px}
+.baum-register{border:1px solid var(--linie);border-radius:8px;margin:0 0 8px;padding:8px 10px;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px}
+.baum-register .hinweis{margin:0;font-size:13px}
+.baum-register.aktuell{border-color:var(--akzent);display:block}
+.baum-reg-name{font-weight:650;border:0;background:none;padding:2px 0;cursor:pointer;text-align:left}
+button.baum-reg-name:hover{color:var(--akzent);text-decoration:underline}
+.etikett{display:inline-block;font-size:12px;background:var(--akzent);color:#fff;border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:1px}
+.baum-abschnitte{margin-top:8px}
+.baum-abschnitt{border-top:1px solid var(--linie)}
+.baum-abschnitt.aktiv>.baum-zeile{background:#e8f1f5}
+.baum-zeile{display:flex;align-items:center;gap:2px;padding:3px 0;border-radius:6px}
+.baum-auf{border:0;background:none;width:24px;cursor:pointer;color:var(--leise);flex:none}
+.baum-name{flex:1;min-width:0;border:0;background:none;text-align:left;padding:5px 2px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.baum-knoepfe{display:flex;gap:1px;flex:none}
+.baum-knopf{border:0;background:none;width:24px;height:26px;border-radius:5px;cursor:pointer;color:var(--leise)}
+.baum-knopf:hover{background:var(--grund);color:var(--text)}
+.baum-inhalte{padding:0 0 6px 26px}
+.baum-inhalt{display:block;width:100%;border:0;background:none;text-align:left;padding:4px 6px;border-radius:5px;cursor:pointer;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.baum-inhalt:hover,.baum-inhalt.aktiv{background:#e8f1f5}
+.baum-art{color:var(--leise);font-size:12px;margin-right:4px}

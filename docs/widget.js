@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261030d";
+  const V = "20261030e";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -91,6 +91,7 @@
 .kf-knopf[hidden]{display:none}
 .kf-knopf[hidden]{display:none}
 .kf-bearbeiten-knopf{right:var(--kf-ed-rechts,150px);background:#2f6f8a}
+.kf-portal-knopf{right:var(--kf-portal-rechts,240px);background:#fff;color:#1b1b19;border:1px solid #d6d3ca;text-decoration:none}
 .kf-studio{position:fixed;inset:0;width:100%;height:100%;border:0;z-index:2147483001;background:#f4f4f2}
 .kf-knopf:focus-visible,.kf *:focus-visible,.kf-markieren button:focus-visible{outline:3px solid #2f6f8a;outline-offset:2px}
 .kf-schiebt{outline:2px solid #2f6f8a!important;outline-offset:3px;cursor:grab!important;touch-action:none;user-select:none}
@@ -236,6 +237,11 @@
           rahmen.focus();
         } catch (e) { alert(e.message); bearbeitenKnopf.disabled = false; }
       });
+      // Seitenwechsel aus dem Editor (Reiter „Seiten“): …#kf-editor öffnet ihn auf der neuen Seite gleich wieder
+      if (location.hash === "#kf-editor") {
+        history.replaceState(null, "", location.pathname + location.search);
+        be.sitzung().then(s => s && bearbeitenKnopf.click());
+      }
     }
     dlg.addEventListener("close", () => { offen = false; document.documentElement.style.overflow = seitenUeberlauf; pinsEntfernen(); });
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
@@ -648,10 +654,20 @@
     const tippt = () => { const a = document.activeElement; return offen && dlg.contains(a) && /^(INPUT|TEXTAREA)$/.test(a.tagName) && a.type !== "radio" && a.value; };
     const urlPfad = u => { try { return new URL(u).pathname.replace(/index\.html$/, ""); } catch (e) { return ""; } };
 
+    // Nur für Angemeldete: „Portal“ links neben „Editor“ (alle Wünsche, Verlauf, Rückfragen)
+    const portalKnopf = document.createElement("a");
+    portalKnopf.className = "kf-knopf kf-portal-knopf"; portalKnopf.textContent = "Portal"; portalKnopf.hidden = true;
+    portalKnopf.href = PORTAL + "?projekt=" + encodeURIComponent(SLUG);
+    document.body.appendChild(portalKnopf);
+    const editorKnopf = document.querySelector(".kf-bearbeiten-knopf");
+    const portalPlatz = new ResizeObserver(() => document.documentElement.style.setProperty("--kf-portal-rechts", (16 + knopf.offsetWidth + 10 + editorKnopf.offsetWidth + 10) + "px"));
+    portalPlatz.observe(knopf); portalPlatz.observe(editorKnopf);
+
     // Zähler am Knopf: offene Wünsche auf dieser Seite
     async function zaehlen() {
       try {
-        if (!(await be.sitzung())) { knopf.textContent = "KI-Wunsch"; return; }
+        if (!(await be.sitzung())) { knopf.textContent = "KI-Wunsch"; portalKnopf.hidden = true; return; }
+        portalKnopf.hidden = false;
         projekt = projekt || await be.projekt(SLUG);
         if (!projekt) return;
         const n = (await be.wuensche(projekt.id)).filter(w => urlPfad(w.seite_url) === SEITE && !["erledigt", "abgelehnt"].includes(w.status)).length;

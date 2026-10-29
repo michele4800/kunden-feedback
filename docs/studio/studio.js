@@ -41,6 +41,7 @@
   };
   document.body.innerHTML = `<div class="st">
     <header class="st-leiste">
+      <button type="button" class="btn klein" data-aktion="schliessen" title="Editor schließen – Änderungen bleiben gespeichert">Schließen</button>
       <span class="st-titel" title="${esc(SEITE)}">Editor · ${esc(parent.document.title)}</span>
       <div class="st-gruppe" role="group" aria-label="Ansicht">
         <button type="button" data-geraet="desktop" aria-pressed="true" title="Desktop">${IK.desktop}<span class="nur-vorleser">Desktop</span></button>
@@ -55,6 +56,7 @@
       <span class="st-platz"></span>
       <span class="st-status" role="status" id="st-status">Keine Änderungen</span>
       <button type="button" class="btn" data-aktion="verwerfen">Verwerfen</button>
+      <button type="button" class="btn" data-aktion="speichern" title="Zwischenstand speichern, ohne zu veröffentlichen (Strg+S)">Speichern</button>
       <button type="button" class="btn haupt" data-aktion="veroeffentlichen">Veröffentlichen</button>
     </header>
     <div class="st-mitte">
@@ -62,14 +64,14 @@
         <div class="st-reiter" role="tablist">
           <button type="button" role="tab" data-reiter="hinzufuegen" aria-selected="true">Hinzufügen</button>
           <button type="button" role="tab" data-reiter="gestalten" aria-selected="false">Gestalten</button>
-          <button type="button" role="tab" data-reiter="ebenen" aria-selected="false">Ebenen</button>
+          <button type="button" role="tab" data-reiter="seiten" aria-selected="false">Seiten</button>
           <button type="button" role="tab" data-reiter="daten" aria-selected="false" hidden>Angaben</button>
           <button type="button" role="tab" data-reiter="neuigkeiten" aria-selected="false" hidden>Neuigkeiten</button>
         </div>
         <div class="st-inhalt">
           <section data-feld="hinzufuegen"><p class="hinweis">Sektion oder Element auf die Seite ziehen. Auf der Seite: Element anklicken zum Auswählen, Text doppelt anklicken zum Schreiben, Foto doppelt anklicken zum Austauschen.</p><div id="kf-bloecke"></div></section>
           <section data-feld="gestalten" hidden><p class="hinweis" id="st-geraet-hinweis">Änderungen gelten für alle Geräte.</p><div id="kf-merkmale"></div><div id="kf-stile"></div></section>
-          <section data-feld="ebenen" hidden><p class="hinweis">Reihenfolge der Seite. Ziehen zum Verschieben.</p><div id="kf-ebenen"></div></section>
+          <section data-feld="seiten" hidden><div id="kf-baum"></div></section>
           <section data-feld="daten" hidden></section>
           <section data-feld="neuigkeiten" hidden></section>
         </div>
@@ -93,7 +95,6 @@
       { id: "handy", name: "Handy", width: "375px", widthMedia: "480px" }] },
     panels: { defaults: [] },
     blockManager: { appendTo: "#kf-bloecke", blocks: window.KF_BLOECKE || [] },
-    layerManager: { appendTo: "#kf-ebenen" },
     selectorManager: { componentFirst: true },
     traitManager: { appendTo: "#kf-merkmale" },
     styleManager: { appendTo: "#kf-stile", sectors: [
@@ -139,7 +140,9 @@
   }
 
   // ---------- Leiste ----------
+  let aktiverReiter = "hinzufuegen";
   const reiter = name => {
+    aktiverReiter = name;
     document.querySelectorAll("[data-reiter]").forEach(b => b.setAttribute("aria-selected", b.dataset.reiter === name));
     document.querySelectorAll("[data-feld]").forEach(s => s.hidden = s.dataset.feld !== name);
   };
@@ -158,18 +161,21 @@
   };
   // Änderungen an der Seite selbst zählen erst nach dem Laden (GrapesJS meldet beim Aufbau auch „update“)
   let bereit = false, seiteGeaendert = false;
-  editor.on("update", () => { if (!bereit) return; seiteGeaendert = true; leisteAktualisieren(); entwurfMerken(); });
+  editor.on("update", () => { if (!bereit) return; seiteGeaendert = true; ungespeichert = true; leisteAktualisieren(); entwurfMerken(); baumSpaeter(); });
   editor.on("undo redo", leisteAktualisieren);
   editor.on("component:selected", c => {
     const b = c.get("kfBereich");
-    if (!b) return reiter("gestalten");
+    if (!b) return aktiverReiter === "seiten" ? undefined : reiter("gestalten");  // in „Seiten“ bleiben, wenn man dort auswählt
     if (b.art === "neuigkeiten") { neuigkeitenZeigen(b.schluessel); reiter("neuigkeiten"); }
     else { reiter("daten"); }
   });
 
   const geaendert = () => seiteGeaendert || datenGeaendert || Object.values(nachrichten).some(n => n.geaendert);
+  let ungespeichert = false, gespeichertUm = null;
+  const uhr = z => new Date(z).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
   function status(text) {
-    $("#st-status").textContent = text || (geaendert() ? "Nicht veröffentlichte Änderungen" : "Keine Änderungen");
+    $("#st-status").textContent = text || (!geaendert() ? "Keine Änderungen"
+      : ungespeichert || !gespeichertUm ? "Nicht gespeicherte Änderungen" : `Gespeichert um ${uhr(gespeichertUm)} · noch nicht veröffentlicht`);
   }
 
   $(".st-leiste").addEventListener("click", async e => {
@@ -177,6 +183,8 @@
     if (a === "zurueck") um.undo();
     if (a === "vor") um.redo();
     if (a === "vorschau") editor.runCommand("core:preview");
+    if (a === "speichern") speichern();
+    if (a === "schliessen") { if (geaendert()) speichern(); K.schliessen(); }
     if (a === "verwerfen") {
       if (geaendert() && !confirm("Alle Änderungen verwerfen und den Editor schließen?")) return;
       try { localStorage.removeItem(ENTWURF); } catch (err) {}
@@ -189,13 +197,26 @@
   editor.on("stop:core:preview", () => $("#st-vorschau-ende")?.remove());
 
   // ---------- Entwurf im Browser (falls der Tab zugeht) ----------
+  // „Speichern“ legt den Zwischenstand in diesem Browser ab; beim nächsten Öffnen des Editors ist er wieder da.
+  // shortcut: nur auf diesem Gerät – geräteübergreifend erst mit Entwürfen in Supabase (Status „entwurf“, braucht Schema-Update)
   let merkenUhr = null;
-  function entwurfMerken() {
+  function entwurfSchreiben() {
     clearTimeout(merkenUhr);
-    merkenUhr = setTimeout(() => {
-      try { localStorage.setItem(ENTWURF, JSON.stringify({ basis, zeit: Date.now(), projekt: editor.getProjectData(), daten: datenGeaendert ? datenWerte() : null })); } catch (e) {}
-    }, 800);
+    try {
+      localStorage.setItem(ENTWURF, JSON.stringify({ basis, zeit: Date.now(), projekt: seiteGeaendert ? editor.getProjectData() : null,
+        daten: datenGeaendert ? datenWerte() : null,
+        neuigkeiten: Object.fromEntries(Object.entries(nachrichten).filter(([, n]) => n.geaendert).map(([k, n]) => [k, n.liste])) }));
+      return true;
+    } catch (e) { return false; }
   }
+  function entwurfMerken() { clearTimeout(merkenUhr); merkenUhr = setTimeout(entwurfSchreiben, 800); }
+  function speichern() {
+    if (!geaendert()) return status("Keine Änderungen zum Speichern");
+    if (!entwurfSchreiben()) return meldung("Nicht gespeichert", "Der Browser lässt hier kein Speichern zu (z. B. im privaten Fenster). Bitte veröffentlichen oder ein normales Fenster nutzen.", [["OK", () => meldung("")]]);
+    ungespeichert = false; gespeichertUm = Date.now(); status();
+  }
+  document.addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") { e.preventDefault(); speichern(); } });
+  editor.Keymaps.add("kf:speichern", "⌘+s, ctrl+s", (ed, s, opt) => { opt?.event?.preventDefault?.(); speichern(); });
 
   // ---------- Angaben aus Daten (z. B. Öffnungszeiten in daten.json) ----------
   let schema = null, daten = null, datenBasis = "", datenGeaendert = false;
@@ -288,6 +309,126 @@
     n.geaendert = true; bearbeite = null; status(); neuigkeitenZeigen();
   });
 
+  // ---------- Seiten: Register (Seiten der Website) → Abschnitte → Inhalte ----------
+  // Register kommen aus der Navigation der Seite, Abschnitte und Inhalte aus dem Editor – in Seitenreihenfolge, mit Namen aus den Überschriften.
+  const quelle = new DOMParser().parseFromString(K.text, "text/html");
+  const ohneAnker = u => u.split("#")[0];
+  const register = (() => {
+    const gesehen = new Set(), liste = [];
+    const nav = quelle.querySelector("header nav, nav") || quelle.body;
+    const weitere = [...quelle.querySelectorAll("footer a[href]")];
+    for (const [a, gruppe] of [...[...nav.querySelectorAll("a[href]")].map(a => [a, "haupt"]), ...weitere.map(a => [a, "weitere"])]) {
+      let u; try { u = new URL(a.getAttribute("href"), SEITE); } catch (e) { continue; }
+      if (u.origin !== new URL(SEITE).origin || !/(\/|\.html?)$/i.test(u.pathname)) continue;
+      const titel = (a.textContent || "").replace(/\s+/g, " ").trim();
+      const schluessel = ohneAnker(u.href) + "#" + u.hash;
+      if (!titel || gesehen.has(schluessel)) continue;
+      gesehen.add(schluessel); liste.push({ titel, url: ohneAnker(u.href), anker: u.hash.slice(1), gruppe });
+    }
+    if (!liste.some(r => r.url === SEITE && !r.anker)) liste.unshift({ titel: parent.document.title.split(/[–|-]/)[0].trim() || "Diese Seite", url: SEITE, anker: "", gruppe: "haupt" });
+    return liste;
+  })();
+
+  const TAGNAMEN = { header: "Kopfbereich", footer: "Fußbereich", nav: "Navigation", section: "Abschnitt", article: "Beitrag", aside: "Randspalte" };
+  // Kurzbeschreibung: Text, sonst Bildbeschreibung (auch für Überschriften, die nur ein Logo enthalten)
+  const kurzText = c => (textVon(c) || (c.get("tagName") === "img" ? c.getAttributes().alt : c.find("img")[0]?.getAttributes().alt) || "").slice(0, 48);
+  const textVon = c => { const el = c.getEl && c.getEl(); return ((el && el.textContent) || "").replace(/\s+/g, " ").trim(); };
+  function nameVon(c) {
+    const b = c.get("kfBereich"); if (b) return b.titel + " (automatisch)";
+    const h = c.find("h1, h2, h3")[0];
+    if (h) { const t = textVon(h) || (h.find("img")[0]?.getAttributes().alt || ""); if (t) return t.slice(0, 60); }
+    const a = c.getAttributes();
+    if (a["aria-label"] || TAGNAMEN[c.get("tagName")]) return a["aria-label"] || TAGNAMEN[c.get("tagName")];
+    const t = kurzText(c);
+    return t ? `${ART[c.get("tagName")] || "Element"}: ${t}` : "Element";
+  }
+  // Abschnitte = header/section/footer/aside/… bis in main und Hüllen-divs hinein, ohne Verschachtelung
+  function abschnitte() {
+    const raus = [];
+    const gehen = liste => liste.forEach(c => {
+      const tag = c.get("tagName"), b = c.get("kfBereich");
+      if (tag === "kf-sperre") { if (b) raus.push(c); return; }
+      if (["header", "section", "footer", "aside", "article", "nav"].includes(tag)) { raus.push(c); return; }
+      if (["main", "div"].includes(tag) && c.find("section, header, footer").length) return gehen(c.components());
+      if (c.get("type") !== "textnode" && c.get("selectable") !== false && tag !== "script") raus.push(c);
+    });
+    gehen(editor.getWrapper().components());
+    return raus;
+  }
+  const ART = { h1: "Überschrift", h2: "Überschrift", h3: "Zwischenüberschrift", h4: "Zwischenüberschrift", p: "Text", img: "Foto", a: "Link", blockquote: "Zitat", ul: "Liste", ol: "Liste", table: "Tabelle", button: "Knopf", figure: "Foto" };
+  function inhalte(abschnitt) {
+    if (abschnitt.get("kfBereich")) return [];
+    return abschnitt.find("h1, h2, h3, h4, p, img, blockquote, ul, ol, table, a").filter(c =>
+      !c.closest("kf-sperre") && c.get("selectable") !== false && !c.parents().some(x => ["p", "ul", "ol", "blockquote", "table", "a"].includes(x.get("tagName")) && abschnitt.find("*").includes(x))
+    ).slice(0, 30);
+  }
+  const offeneAbschnitte = new Set();
+  let baumUhr = null;
+  const baumSpaeter = () => { clearTimeout(baumUhr); baumUhr = setTimeout(baum, 250); };
+  const KN = (aktion, cid, text, titel) => `<button type="button" class="baum-knopf" data-b="${aktion}" data-cid="${cid}" title="${esc(titel)}" aria-label="${esc(titel)}">${text}</button>`;
+  function baum() {
+    const ziel = $("#kf-baum"); if (!ziel) return;
+    const gewaehlt = editor.getSelected();
+    const teile = abschnitte();
+    const abschnittHtml = (c, i) => {
+      const cid = c.cid, offen = offeneAbschnitte.has(cid), kinder = offen ? inhalte(c) : [];
+      const aktiv = gewaehlt && (gewaehlt === c || gewaehlt.parents().includes(c));
+      return `<li class="baum-abschnitt${aktiv ? " aktiv" : ""}">
+        <div class="baum-zeile">
+          <button type="button" class="baum-auf" data-b="auf" data-cid="${cid}" aria-expanded="${offen}" ${c.get("kfBereich") ? "disabled" : ""} title="Inhalte zeigen">${c.get("kfBereich") ? "•" : offen ? "▾" : "▸"}</button>
+          <button type="button" class="baum-name" data-b="waehlen" data-cid="${cid}">${esc(nameVon(c))}</button>
+          <span class="baum-knoepfe">${KN("hoch", cid, "↑", "Nach oben")}${KN("runter", cid, "↓", "Nach unten")}${c.get("kfBereich") ? "" : KN("kopie", cid, "⧉", "Kopieren")}${KN("weg", cid, "✕", "Löschen")}</span>
+        </div>
+        ${offen ? `<ul class="baum-inhalte">${kinder.map(k => `<li><button type="button" class="baum-inhalt${gewaehlt === k ? " aktiv" : ""}" data-b="inhalt" data-cid="${k.cid}">
+          <span class="baum-art">${ART[k.get("tagName")] || "Element"}</span> ${esc(kurzText(k) || "(leer)")}</button></li>`).join("") || `<li class="hinweis">Keine Inhalte</li>`}</ul>` : ""}
+      </li>`;
+    };
+    const aktuell = r => r.url === SEITE;
+    const haupt = register.filter(r => r.gruppe === "haupt"), weitere = register.filter(r => r.gruppe === "weitere" && !haupt.some(h => h.url === r.url && h.anker === r.anker));
+    const regHtml = r => {
+      if (aktuell(r) && r.anker) {
+        const c = editor.getWrapper().find(`#${CSS.escape(r.anker)}`)[0];
+        return `<li class="baum-register"><button type="button" class="baum-reg-name" data-b="anker" data-anker="${esc(r.anker)}" ${c ? "" : "disabled"}>${esc(r.titel)}</button><span class="hinweis">Abschnitt auf dieser Seite</span></li>`;
+      }
+      if (aktuell(r)) return `<li class="baum-register aktuell"><span class="baum-reg-name">${esc(r.titel)}</span><span class="etikett">wird bearbeitet</span>
+        <ol class="baum-abschnitte">${teile.map(abschnittHtml).join("")}</ol></li>`;
+      return `<li class="baum-register"><button type="button" class="baum-reg-name" data-b="seite" data-url="${esc(r.url)}">${esc(r.titel)}</button><span class="hinweis">${r.anker ? "Abschnitt einer anderen Seite" : "andere Seite – öffnen"}</span></li>`;
+    };
+    ziel.innerHTML = `<p class="hinweis">Register der Website und ihre Abschnitte. Anklicken springt zur Stelle, ▸ zeigt die Inhalte. Zum Bearbeiten Inhalt anklicken.</p>
+      <ul class="baum">${haupt.map(regHtml).join("")}</ul>
+      ${weitere.length ? `<h3 class="baum-titel">Weitere Seiten</h3><ul class="baum">${weitere.map(regHtml).join("")}</ul>` : ""}`;
+  }
+  const zeigen = c => { editor.select(c); const el = c.getEl && c.getEl(); el && el.scrollIntoView({ behavior: "smooth", block: "start" }); };
+  $("#kf-baum").addEventListener("click", e => {
+    const t = e.target.closest("[data-b]"); if (!t) return;
+    const c = t.dataset.cid && editor.getWrapper().find("*").concat(editor.getWrapper().components().models).find(x => x.cid === t.dataset.cid);
+    const art = t.dataset.b;
+    if (art === "seite") {
+      if (geaendert()) speichern();
+      parent.location.href = t.dataset.url + parent.location.search + "#kf-editor";
+      return;
+    }
+    if (art === "anker") { const z = editor.getWrapper().find(`#${CSS.escape(t.dataset.anker)}`)[0]; if (z) zeigen(z); return; }
+    if (!c) return;
+    if (art === "auf") { offeneAbschnitte.has(c.cid) ? offeneAbschnitte.delete(c.cid) : offeneAbschnitte.add(c.cid); return baum(); }
+    if (art === "waehlen") { zeigen(c); return baum(); }
+    if (art === "inhalt") {
+      zeigen(c);
+      // Text gleich zum Schreiben öffnen, Foto gleich zum Austauschen
+      if (c.get("tagName") === "img") editor.runCommand("core:open-assets", { target: c, types: ["image"], accept: "image/*" });
+      else if (c.is("text")) setTimeout(() => c.getEl()?.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })), 350);
+      return baum();
+    }
+    const eltern = c.parent(), i = eltern.components().indexOf(c);
+    if (art === "hoch" && i > 0) c.move(eltern, { at: i - 1 });
+    if (art === "runter" && i < eltern.components().length - 1) c.move(eltern, { at: i + 2 });
+    if (art === "kopie") { const k = c.clone(); eltern.components().add(k, { at: i + 1 }); }
+    if (art === "weg" && confirm(`„${nameVon(c)}“ von dieser Seite löschen?`)) c.remove();
+    baum();
+  });
+  editor.on("component:selected component:deselected", baumSpaeter);
+  document.querySelector('[data-reiter="seiten"]').addEventListener("click", baum);
+
   // ---------- Veröffentlichen ----------
   const meldung = (titel, text, knoepfe = []) => {
     $("#st-m-titel").textContent = titel; $("#st-m-text").innerHTML = text;
@@ -351,14 +492,19 @@
     neuigkeitenZeigen();
     let e = null;
     try { e = JSON.parse(localStorage.getItem(ENTWURF) || "null"); } catch (err) {}
-    const weiter = e && e.basis === basis && confirm("Es gibt eine nicht veröffentlichte Bearbeitung dieser Seite. Dort weitermachen?");
+    // Gespeicherten Stand ohne Rückfrage laden. Hat sich die Seite seitdem geändert (z. B. durch einen KI-Wunsch), fragen:
+    // wer trotzdem lädt, ersetzt beim Veröffentlichen die neuere Fassung.
+    const weiter = e && (e.basis === basis || confirm(`Ihr habt am ${new Date(e.zeit).toLocaleString("de-DE")} einen Stand gespeichert. Die Seite wurde seitdem geändert (z. B. durch einen KI-Wunsch).\n\nGespeicherten Stand trotzdem laden? Beim Veröffentlichen würde er die neueren Änderungen ersetzen.`));
     if (weiter) {
-      editor.loadProjectData(e.projekt); einrichten();
+      if (e.projekt) { editor.loadProjectData(e.projekt); einrichten(); seiteGeaendert = true; }
       if (e.daten) for (const [pfad, w] of Object.entries(e.daten)) $('[data-feld="daten"]').querySelectorAll(`input[data-pfad="${CSS.escape(pfad)}"]`).forEach(i => { i.value = i.dataset.tag ? (w[i.dataset.tag] || "") : w; datenGeaendert = true; });
+      for (const [k, liste] of Object.entries(e.neuigkeiten || {})) if (nachrichten[k]) { nachrichten[k].liste = liste; nachrichten[k].geaendert = true; }
+      neuigkeitenZeigen();
+      gespeichertUm = e.zeit;
     } else if (e) { try { localStorage.removeItem(ENTWURF); } catch (err) {} }
     um.clear();
-    seiteGeaendert = !!(weiter && e.projekt);  // wiederhergestellte Bearbeitung gilt als Änderung
-    bereit = true;
-    leisteAktualisieren();
+    setTimeout(() => { bereit = true; ungespeichert = false; if (weiter) status(`Gespeicherter Stand vom ${uhr(e.zeit)} geladen · noch nicht veröffentlicht`); }, 400);  // Nachzügler-„update“ vom Laden nicht zählen
+    leisteAktualisieren(); baum();
+    if (weiter) status(`Gespeicherter Stand vom ${uhr(e.zeit)} geladen · noch nicht veröffentlicht`);
   });
 })().catch(e => { console.error(e); document.body.innerHTML = `<p style="padding:24px;font:16px system-ui">Der Editor konnte nicht geladen werden: ${String(e.message).replace(/</g, "&lt;")}</p><p style="padding:0 24px"><button onclick="parent.KF_STUDIO_KONTEXT.schliessen()">Schließen</button></p>`; });
