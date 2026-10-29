@@ -73,8 +73,21 @@
     inhalt.innerHTML = `${admin ? `<p><a class="btn" href="../dashboard/">Zum Dashboard</a></p>` : ""}<h2>Projekte</h2>${alle.length ? `<ul class="liste">${alle.map(p => `<li class="w"><a href="?projekt=${encodeURIComponent(p.slug)}">${esc(p.name)}</a></li>`).join("")}</ul>` : `<p class="leer">Für dieses Konto ist noch kein Projekt freigegeben.</p>`}`;
   }
 
+  // „Zur Website“: Live-Adresse, sonst die Entwürfe (Auswahl), sonst die Vorschau. Dort warten Editor und KI-Wunsch.
+  function zurWebsite() {
+    if (!projekt) return "";
+    const ziele = projekt.live_url ? [{ name: "Website", url: projekt.live_url }]
+      : (projekt.entwuerfe || []).length ? projekt.entwuerfe : projekt.vorschau_url ? [{ name: "Website", url: projekt.vorschau_url }] : [];
+    if (!ziele.length) return "";
+    if (ziele.length === 1) return `<a class="btn klein" href="${esc(ziele[0].url)}" style="margin-right:6px">Zur Website</a>`;
+    return `<label class="nur-vorleser" for="zur-website">Zur Website</label><select id="zur-website" class="btn klein" style="margin-right:6px;width:auto">
+      <option value="">Zur Website …</option>${ziele.map(z => `<option value="${esc(z.url)}">${esc(z.name)}</option>`).join("")}</select>`;
+  }
+
   function kopf() {
-    kopfRechts.innerHTML = `<span style="margin-right:12px;font-size:14px">${esc(namen[ich.id] || ich.email)}</span><button class="btn hell klein" id="abmelden">Abmelden</button>`;
+    kopfRechts.innerHTML = `${zurWebsite()}<span style="margin-right:12px;font-size:14px">${esc(namen[ich.id] || ich.email)}</span><button class="btn hell klein" id="abmelden">Abmelden</button>`;
+    const wahl = document.getElementById("zur-website");
+    if (wahl) wahl.addEventListener("change", () => { if (/^https?:\/\//.test(wahl.value)) location.href = wahl.value; });
     document.getElementById("abmelden").addEventListener("click", async () => { if (stopp) stopp(); stopp = null; projekt = null; await be.abmelden(); anmeldung(); });
   }
 
