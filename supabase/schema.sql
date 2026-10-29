@@ -138,6 +138,23 @@ create table if not exists public.veroeffentlichungen (
 );
 create index if not exists veroeffentlichungen_projekt on public.veroeffentlichungen(projekt_id, start desc);
 
+-- Editor (seit Version 4): jede Änderung eines markierten Bereichs (<!-- kf:schluessel -->) als eigene Zeile = Verlauf.
+-- Der Wächter übernimmt sie ohne KI, nur in Bereiche, die im Website-Code markiert sind.
+create table if not exists public.inhalte (
+  id                  uuid primary key default gen_random_uuid(),
+  projekt_id          uuid not null references public.projekte(id) on delete cascade,
+  schluessel          text not null check (schluessel ~ '^[a-z0-9-]{1,60}$'),
+  seite_url           text not null default '' check (length(seite_url) <= 2000),
+  wert                jsonb not null check (jsonb_typeof(wert) = 'object' and length(wert::text) <= 60000),
+  status              text not null default 'neu' check (status in ('neu', 'live', 'fehler', 'ersetzt', 'zurueckgenommen')),
+  meldung             text not null default '' check (length(meldung) <= 1000),
+  autor               uuid default auth.uid() references auth.users(id) on delete set null,
+  veroeffentlichung_id uuid references public.veroeffentlichungen(id) on delete set null,
+  erstellt_am         timestamptz not null default now(),
+  geaendert_am        timestamptz not null default now()
+);
+create index if not exists inhalte_projekt on public.inhalte(projekt_id, erstellt_am desc);
+
 -- ---------- Hilfsfunktionen (security definer, damit RLS-Prüfungen nicht rekursiv werden) ----------
 create or replace function public.ist_admin() returns boolean
   language sql stable security definer set search_path = public as
@@ -260,6 +277,33 @@ begin
   return new;
 end
 $$;
+-- Inhalte: Autor und Zeit setzt der Server; Kunden legen nur neue Änderungen an (Status „neu“), den Rest setzt der Wächter.
+-- Was geändert werden sollte (Schlüssel, Wert, Projekt, Autor), bleibt für immer so – der Verlauf ist unverfälschbar.
+create or replace function public.inhalt_pruefen() returns trigger
+  language plpgsql security definer set search_path = public as
+$$
+begin
+  if tg_op = 'INSERT' then
+    new.autor := auth.uid();
+    new.erstellt_am := now();
+    new.geaendert_am := now();
+    if not public.ist_agentur(new.projekt_id) then
+      new.status := 'neu'; new.meldung := ''; new.veroeffentlichung_id := null;
+    end if;
+    return new;
+  end if;
+  if new.projekt_id <> old.projekt_id or new.schluessel <> old.schluessel or new.wert <> old.wert
+     or new.autor is distinct from old.autor or new.erstellt_am <> old.erstellt_am or new.seite_url <> old.seite_url then
+    raise exception 'Eine gespeicherte Änderung ist unveränderlich';
+  end if;
+  new.geaendert_am := now();
+  return new;
+end
+$$;
+drop trigger if exists inhalt_pruefen on public.inhalte;
+create trigger inhalt_pruefen before insert or update on public.inhalte
+  for each row execute function public.inhalt_pruefen();
+
 drop trigger if exists veroeffentlichung_pruefen on public.veroeffentlichungen;
 create trigger veroeffentlichung_pruefen before insert or update on public.veroeffentlichungen
   for each row execute function public.veroeffentlichung_pruefen();
@@ -274,10 +318,19 @@ alter table public.antworten  enable row level security;
 alter table public.automatik  enable row level security;
 alter table public.admins     enable row level security;
 alter table public.veroeffentlichungen enable row level security;
+alter table public.inhalte    enable row level security;
 
 -- Nicht angemeldete Besucher (anon) bekommen gar nichts
 revoke all on public.projekte, public.mitglieder, public.wuensche, public.kommentare, public.fragen, public.antworten, public.automatik,
-  public.admins, public.veroeffentlichungen from anon;
+  public.admins, public.veroeffentlichungen, public.inhalte from anon;
+grant select, insert, update on public.inhalte to authenticated;
+drop policy if exists inhalte_lesen on public.inhalte;
+create policy inhalte_lesen on public.inhalte for select to authenticated using (public.ist_mitglied(projekt_id));
+drop policy if exists inhalte_anlegen on public.inhalte;
+create policy inhalte_anlegen on public.inhalte for insert to authenticated with check (public.ist_mitglied(projekt_id));
+drop policy if exists inhalte_aendern on public.inhalte;
+create policy inhalte_aendern on public.inhalte for update to authenticated
+  using (public.ist_agentur(projekt_id)) with check (public.ist_agentur(projekt_id));
 grant select, insert, update on public.projekte to authenticated;
 grant select, insert, update, delete on public.mitglieder to authenticated;
 grant select, insert, update, delete on public.wuensche, public.kommentare, public.fragen, public.antworten to authenticated;
@@ -388,6 +441,7 @@ begin
     begin alter publication supabase_realtime add table public.automatik;  exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.projekte;   exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.veroeffentlichungen; exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table public.inhalte;    exception when duplicate_object then null; end;
   end if;
 end $$;
 
