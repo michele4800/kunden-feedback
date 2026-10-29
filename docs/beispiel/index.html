@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bäckerei Muster – Beispiel für den Editor</title>
+<meta name="robots" content="noindex, nofollow">
+<meta name="color-scheme" content="light">
+<style>
+/* Beispiel-Website: zeigt, wie bearbeitbare Bereiche markiert werden (siehe README, „Editor“) */
+:root{--grund:#FBF7F0;--text:#2A211B;--leise:#6B5E52;--akzent:#9A4B1C;--linie:#E7DCCB}
+*{box-sizing:border-box}
+body{margin:0;background:var(--grund);color:var(--text);font:400 17px/1.6 Georgia,"Times New Roman",serif}
+.wrap{max-width:980px;margin:0 auto;padding:0 20px}
+header{padding:56px 0 24px}
+h1{font-size:clamp(2.2rem,5vw,3.4rem);line-height:1.1;margin:0 0 12px}
+h2{font-size:1.6rem;margin:0 0 12px}
+p{margin:0 0 1em;max-width:62ch}
+a{color:var(--akzent)}
+.zwei{display:grid;grid-template-columns:1.1fr 1fr;gap:40px;align-items:center;padding:24px 0 48px}
+.zwei img{width:100%;height:auto;border-radius:12px;display:block}
+section{padding:40px 0;border-top:1px solid var(--linie)}
+.kf-neuigkeit{padding:14px 0;border-bottom:1px solid var(--linie)}
+.kf-neuigkeit time{font-size:.85rem;color:var(--leise)}
+.kf-neuigkeit h3{margin:2px 0 6px}
+.kf-neuigkeit img{max-width:320px;width:100%;height:auto;border-radius:8px;margin:6px 0}
+.kf-rss{font-size:.85rem}
+footer{padding:32px 0 96px;color:var(--leise);font-size:.95rem}
+@media (max-width:760px){.zwei{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="wrap">
+  <h1><!-- kf:titel art="text" titel="Überschrift" -->Frisch gebacken seit 1952<!-- /kf:titel --></h1>
+  <p><!-- kf:einleitung art="text" titel="Einleitung" -->Brot, Brezeln und Kuchen aus dem Holzofen – jeden Morgen ab 6 Uhr.<!-- /kf:einleitung --></p>
+</header>
+<main class="wrap">
+  <div class="zwei">
+    <div>
+      <h2>Unser Laden</h2>
+      <!-- kf:laden art="mehrzeilig" titel="Text zum Laden" --><p>Wir backen mit Mehl aus der Region und viel Zeit für den Teig.</p><p>Samstags gibt es Hefezopf.</p><!-- /kf:laden -->
+      <p>Telefon: <!-- kf:telefon art="link" titel="Telefonnummer" --><a href="tel:+497031000000">07031 000000</a><!-- /kf:telefon --></p>
+    </div>
+    <!-- kf:foto art="bild" titel="Foto vom Laden" --><img src="laden.svg" alt="Theke der Bäckerei mit Brotregal" width="800" height="600"><!-- /kf:foto -->
+  </div>
+  <section>
+    <h2>Neuigkeiten</h2>
+    <!-- kf:neues art="neuigkeiten" titel="Neuigkeiten" ebene="3" --><p class="kf-leer">Gerade gibt es keine Neuigkeiten.</p><!-- /kf:neues -->
+  </section>
+</main>
+<footer class="wrap">Bäckerei Muster · Musterstraße 1 · <!-- kf:telefon art="link" --><a href="tel:+497031000000">07031 000000</a><!-- /kf:telefon --></footer>
+<script src="../feedback.js" data-projekt="baeckerei-muster" defer></script>
+</body>
+</html>

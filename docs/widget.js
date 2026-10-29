@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261019c";
+  const V = "20261030a";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -31,6 +31,7 @@
     // Entwurf des neuen Wunsches – bleibt erhalten, während der Kunde auf der Seite markiert oder Text ändert
     const leer = () => ({ art: "sonstiges", text: "", stelle: null, details: {}, dateien: [], wichtig: 2 });
     let neu = leer();
+    let nachAnmeldung = "";
     // Gesammelte Wünsche (noch nicht abgeschickt) – im Browser gespeichert, damit sie Seitenwechsel überstehen
     const SAMMEL = "kf-liste-" + SLUG;
     const sammlung = () => { try { return JSON.parse(localStorage.getItem(SAMMEL) || "[]"); } catch (e) { return []; } };
@@ -43,7 +44,9 @@
     const dateien = () => [location.href.split("#")[0], ...[...document.querySelectorAll('link[rel="stylesheet"], script[src]')]
       .map(e => e.href || e.src).filter(u => u && new URL(u).origin === location.origin && !u.startsWith(BASIS))];
     async function abdruck(cache) {
-      const texte = await Promise.all(dateien().map(u => fetch(u, { cache }).then(r => r.ok ? r.text() : "").catch(() => "")));
+      // Virenscanner (z. B. Kaspersky) schieben manchmal eigene Skripte von fremden Servern in die Seite – die zählen nicht
+      const fremd = new RegExp(`<script\\b[^>]*\\bsrc\\s*=\\s*["']?(?:https?:)?//(?!${location.host.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")})[^>]*>\\s*</script>`, "gi");
+      const texte = await Promise.all(dateien().map(u => fetch(u, { cache }).then(r => r.ok ? r.text() : "").then(t => t.replace(fremd, "")).catch(() => "")));
       let h = 5381; for (const c of texte.join("\u0000")) h = (h * 33 + c.charCodeAt(0)) >>> 0;
       return h;
     }
@@ -85,6 +88,10 @@
     const css = document.createElement("style");
     css.textContent = `
 .kf-knopf{position:fixed;right:16px;bottom:16px;z-index:2147483000;font:600 15px/1 system-ui,-apple-system,"Segoe UI",sans-serif;background:#1b1b19;color:#fff;border:0;border-radius:999px;padding:13px 18px;cursor:pointer;box-shadow:0 6px 20px rgba(0,0,0,.28);display:flex;gap:8px;align-items:center}
+.kf-knopf[hidden]{display:none}
+.kf-knopf[hidden]{display:none}
+.kf-bearbeiten-knopf{right:auto;left:50%;transform:translateX(-50%);background:#2f6f8a}
+@media (max-width:520px){.kf-bearbeiten-knopf{left:16px;transform:none}}
 .kf-knopf:focus-visible,.kf *:focus-visible,.kf-markieren button:focus-visible{outline:3px solid #2f6f8a;outline-offset:2px}
 .kf-schiebt{outline:2px solid #2f6f8a!important;outline-offset:3px;cursor:grab!important;touch-action:none;user-select:none}
 .kf-schiebt:active{cursor:grabbing!important}
@@ -197,6 +204,25 @@
     const öffnen = () => { if (!dlg.open) { seitenUeberlauf = document.documentElement.style.overflow; document.documentElement.style.overflow = "hidden"; dlg.showModal(); } offen = true; return zeichnen().catch(fehlerZeigen); };
     const fehlerZeigen = e => { console.error(e); dlg.innerHTML = rahmen("Wünsche", "", `<p>Das Fenster konnte nicht geladen werden. Bitte die Seite neu laden.</p><button type="button" class="kf-btn" onclick="location.reload()">Seite neu laden</button>`); };
     knopf.addEventListener("click", öffnen);
+
+    // Editor: nur auf Seiten mit markierten Bereichen (<!-- kf:… -->). Ohne Anmeldung führt der Knopf zur Anmeldung.
+    const hatBereiche = (() => { const w = document.createTreeWalker(document.body, NodeFilter.SHOW_COMMENT); while (w.nextNode()) if (/^\s*kf:[a-z0-9-]/.test(w.currentNode.data)) return true; return false; })();
+    if (hatBereiche) {
+      const bearbeitenKnopf = document.createElement("button");
+      bearbeitenKnopf.type = "button"; bearbeitenKnopf.className = "kf-knopf kf-bearbeiten-knopf"; bearbeitenKnopf.textContent = "Bearbeiten";
+      document.body.appendChild(bearbeitenKnopf);
+      bearbeitenKnopf.addEventListener("click", async () => {
+        if (!(await be.sitzung())) { nachAnmeldung = "bearbeiten"; return öffnen(); }
+        bearbeitenKnopf.disabled = true;
+        try {
+          projekt = projekt || await be.projekt(SLUG);
+          if (!projekt) throw new Error("Für dieses Konto ist hier kein Projekt freigegeben.");
+          if (!KF.editor) await laden(BASIS + "editor.js");
+          await KF.editor(be, projekt);
+          bearbeitenKnopf.hidden = true;
+        } catch (e) { alert(e.message); bearbeitenKnopf.disabled = false; }
+      });
+    }
     dlg.addEventListener("close", () => { offen = false; document.documentElement.style.overflow = seitenUeberlauf; pinsEntfernen(); });
     dlg.addEventListener("click", e => { if (e.target === dlg) dlg.close(); });
 
@@ -379,7 +405,9 @@
       try {
         if (f.dataset.form === "login") {
           await be.anmelden(f.querySelector("#kf-email").value.trim(), f.querySelector("#kf-pw").value);
-          projekt = null; await zeichnen(); zaehlen();
+          projekt = null;
+          if (nachAnmeldung === "bearbeiten") { nachAnmeldung = ""; dlg.close(); document.querySelector(".kf-bearbeiten-knopf").click(); return; }
+          await zeichnen(); zaehlen();
         } else if (f.dataset.form === "neu") {
           const zurListe = (e.submitter && e.submitter.value) === "liste";
           const text = neu.text.trim(), d = { ...neu.details };

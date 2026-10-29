@@ -20,10 +20,12 @@ Kunde (Website + Widget) ──► Supabase (EU) ◄── Portal (Kunde & Agent
 | `docs/widget.js` | **Widget**: Knopf „Wünsche“, Anmeldung, Werkzeuge (siehe unten), Verlauf, Live-Status |
 | `docs/dashboard/` | **Dashboard** für dich (Admin): alle Kunden, Wünsche, Veröffentlichungen, Zustand der Automatik, Kunden anlegen |
 | `docs/portal/` | **Portal**: alle Wünsche mit Filter, Status, Restzeit, Antworten, Fragen, Freigabe, Export für Claude |
+| `docs/editor.js` | **Editor**: Knopf „Bearbeiten“ auf Seiten mit markierten Bereichen – Text, Bild, Link, Neuigkeiten direkt ändern |
+| `docs/beispiel/` | Beispiel-Website mit markierten Bereichen (Vorlage für neue Kundenseiten, Test des Editors) |
 | `docs/backend.js` | Gemeinsame Schicht für Supabase und den Demo-Modus |
 | `docs/konfig.js` | Supabase-Adresse und öffentlicher Schlüssel (leer = Demo-Modus) |
 | `supabase/schema.sql` | Tabellen, Zugriffsregeln (RLS), Trigger, Realtime |
-| `supabase/functions/kunde-anlegen/` | Edge Function: legt aus dem Dashboard Kunden-Login, Projekt und Automatik an (nur Admins) |
+| `supabase/functions/kunden-verwalten/` | Edge Function: Kunden anlegen, Zugänge (Benutzername, Passwort) pflegen – nur Admins |
 | `supabase/neuer-kunde.sql` | Vorlage: Projekt, Mitglieder, Automatik und Fragen für einen Kunden |
 | `waechter/` | **Wächter**: setzt Wünsche mit Claude Code um |
 | `test/` | Tests der Zugriffsregeln (echtes Postgres) und Praxistest für Claude Code |
@@ -80,14 +82,16 @@ Mit `?kf-demo` in der Adresse läuft Widget oder Portal auch bei eingetragenem S
    insert into public.admins select id from auth.users where email = 'deine@adresse.de' on conflict do nothing;
    ```
    Admins sehen alle Projekte und gelten in jedem Projekt als Agentur. Der Automatik-Benutzer wird **kein** Admin.
-2. **Edge Function:** *Edge Functions → Deploy a new function → Via Editor*, Name `kunde-anlegen`, Inhalt von
-   `supabase/functions/kunde-anlegen/index.ts` einfügen, *Deploy*. „Verify JWT“ eingeschaltet lassen.
+2. **Edge Function:** *Edge Functions → Deploy a new function → Via Editor*, Name `kunden-verwalten`, Inhalt von
+   `supabase/functions/kunden-verwalten/index.ts` einfügen, *Deploy*. „Verify JWT“ eingeschaltet lassen.
    Den service_role-Schlüssel stellt Supabase der Funktion selbst bereit – er wird nirgends eingetragen.
 3. Dashboard öffnen: `https://michele4800.github.io/kunden-feedback/dashboard/` und mit deinem Agentur-Login anmelden.
 
-Neue Kunden legst du danach im Dashboard unter **Kunde anlegen** an: Es erzeugt Login (Passwort wird einmal angezeigt),
-Projekt, Mitglieder (der Kunde und alle Agentur-Benutzer, also auch die Automatik) und den Automatik-Eintrag,
-und zeigt Zugangsdaten, Einbau-Code und den Eintrag für `waechter/projekte.json` zum Kopieren.
+Neue Kunden legst du danach im Dashboard unter **Kunde anlegen** an: Benutzername (Pflicht), Passwort (selbst wählen oder
+erzeugen lassen), E-Mail freiwillig als Kontakt. Es entstehen Login, Projekt, Mitglieder (der Kunde und alle Agentur-Benutzer,
+also auch die Automatik) und der Automatik-Eintrag; Zugangsdaten, Einbau-Code und der Eintrag für `waechter/projekte.json`
+stehen zum Kopieren bereit. Unter **Zugänge** je Kunde: Passwort neu setzen, Benutzername/E-Mail ändern, weitere Zugänge
+hinzufügen oder entfernen. Agentur-Zugänge (die Automatik) sind dort bewusst gesperrt.
 
 ## Neuen Kunden anlegen (ohne Dashboard)
 
@@ -99,6 +103,30 @@ und zeigt Zugangsdaten, Einbau-Code und den Eintrag für `waechter/projekte.json
    <script src="https://michele4800.github.io/kunden-feedback/feedback.js" data-projekt="kunden-slug" defer></script>
    ```
 4. Dem Kunden schicken: Website-Link, E-Mail und Passwort. Er kann das Passwort im Portal über „Passwort vergessen?“ selbst ändern.
+
+## Editor für Kunden
+
+Auf jeder Seite mit markierten Bereichen erscheint neben „Wünsche“ der Knopf **Bearbeiten**. Der Kunde ändert dort direkt
+auf der Seite und klickt **Veröffentlichen**; der Wächter übernimmt die Änderung **ohne KI** (zählt nicht zur Tagesgrenze),
+baut, committet und veröffentlicht – auch wenn die Automatik für Wünsche aus ist. Jede Änderung steht im Portal unter
+„Bearbeitet“ und im Dashboard unter „Veröffentlichungen“ (mit Zurücknehmen).
+
+Bereiche markieren (im HTML der Website, Beispiel: `docs/beispiel/index.html`):
+
+```html
+<h1><!-- kf:titel art="text" titel="Überschrift" -->Frisch gebacken seit 1952<!-- /kf:titel --></h1>
+<!-- kf:laden art="mehrzeilig" --><p>Absätze …</p><!-- /kf:laden -->
+<!-- kf:telefon art="link" --><a href="tel:+49…">07031 …</a><!-- /kf:telefon -->
+<!-- kf:foto art="bild" --><img src="…" alt="…"><!-- /kf:foto -->
+<!-- kf:neues art="neuigkeiten" ebene="3" --><!-- /kf:neues -->
+```
+
+- `text`: eine Zeile, fett/kursiv/Link · `mehrzeilig`: Absätze und Listen · `link`: ein `<a>` · `bild`: ein `<img>`
+  (wird als WebP in den Größen aus `bilder` abgelegt) · `neuigkeiten`: Liste mit Ablaufdatum, dazu `feed.xml` (RSS) daneben.
+- Gleicher Schlüssel an mehreren Stellen (z. B. Telefon oben und unten) wird überall geändert.
+- Nur Dateien im Git werden geändert; erzeugte Ordner (z. B. `livegang/`) baut der Bau-Befehl neu.
+- Sicherheit: Der Kunde wählt nur Schlüssel und Wert. Was eine Stelle ist, steht im Code; unbekannte Schlüssel werden abgelehnt,
+  HTML wird nach einer Positivliste bereinigt (kein Skript, keine Ereignisse, keine `javascript:`-Links, keine Marker).
 
 ## Wächter (automatische Umsetzung)
 
@@ -140,7 +168,7 @@ npm run waechter
 ## Tests
 
 ```bash
-npm test                                                    # 19 Tests der Zugriffsregeln (PGlite) + Foto-Ablage + SFTP
+npm test                                                    # 20 Tests der Zugriffsregeln (PGlite) + Foto-Ablage + SFTP + Editor-Inhalte
 node test/claude-probe.mjs <git-url> [bau-befehl …]         # Praxistest mit Claude Code an einer Wegwerf-Kopie
 ```
 

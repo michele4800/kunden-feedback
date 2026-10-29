@@ -12,6 +12,7 @@ import { claude as claudeRoh, SYSTEM, SCHEMA_SCHAETZUNG, SCHEMA_ERGEBNIS, wunsch
 import { bildHinweis, fotosAblegen } from "./fotos.mjs";
 import { ansichten, seitePfad } from "./ansicht.mjs";
 import { veroeffentlichen, hatZiel } from "./ziele/index.mjs";
+import { inhalteAnwenden, heuteBerlin } from "./inhalte.mjs";
 import { readFileSync, existsSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -84,10 +85,10 @@ async function lebenszeichen(projekt_id, hinweis, slug) {
 
 // ---------- Veröffentlichen mit Protokoll (Tabelle veroeffentlichungen) ----------
 const nachholenDatei = p => path.join(MERK, `${p.slug}.nachholen`);
-// Liefert true, wenn veröffentlicht wurde (oder es kein Ziel gibt). Bei Fehler: Protokoll „fehler“, letzter_fehler fürs
+// Liefert { ok, id }: ok = veröffentlicht (oder kein Ziel), id = Zeile im Protokoll. Bei Fehler: Protokoll „fehler“, letzter_fehler fürs
 // Dashboard und eine Merkdatei – die nächste Runde versucht es erneut.
 async function ausliefern(p, projekt, anlass, meldung) {
-  if (!hatZiel(p)) return true;
+  if (!hatZiel(p)) return { ok: true, id: null };
   const commit_hash = git(p.ordner, "rev-parse", "HEAD");
   const zeile = ok(await sb.from("veroeffentlichungen").insert({ projekt_id: projekt.id, anlass, commit_hash, meldung: meldung.slice(0, 1900) }).select("id").single());
   try {
@@ -97,15 +98,72 @@ async function ausliefern(p, projekt, anlass, meldung) {
     ok(await sb.from("automatik").update({ letzter_fehler: "" }).eq("projekt_id", projekt.id));
     rmSync(nachholenDatei(p), { force: true });
     log(`[${p.slug}] veröffentlicht (${anlass}): ${r.ziel}, ${r.dateien} Datei(en)`);
-    return true;
+    return { ok: true, id: zeile.id };
   } catch (e) {
     const text = `Veröffentlichen fehlgeschlagen: ${e.message}`.slice(0, 900);
     ok(await sb.from("veroeffentlichungen").update({ status: "fehler", ende: new Date().toISOString(), meldung: `${meldung} – ${e.message}`.slice(0, 1900) }).eq("id", zeile.id));
     ok(await sb.from("automatik").update({ letzter_fehler: text }).eq("projekt_id", projekt.id));
     mkdirSync(MERK, { recursive: true }); writeFileSync(nachholenDatei(p), anlass);
     log(`[${p.slug}] ${text}`);
-    return false;
+    return { ok: false, id: zeile.id };
   }
+}
+
+// ---------- Editor-Änderungen (Tabelle inhalte) – ohne KI ----------
+// Je Schlüssel gilt die neueste Änderung, ältere werden „ersetzt“. Einmal am Tag werden Neuigkeiten neu erzeugt,
+// damit abgelaufene Einträge verschwinden.
+async function inhalteVeroeffentlichen(p, projekt) {
+  const tagDatei = path.join(MERK, `${p.slug}.neuigkeiten-tag`), heute = heuteBerlin();
+  const neu = ok(await sb.from("inhalte").select("*").eq("projekt_id", projekt.id).eq("status", "neu").order("erstellt_am"));
+  let taeglich = [];
+  if (!neu.length) {
+    if (existsSync(tagDatei) && readFileSync(tagDatei, "utf8") === heute) return;
+    const live = ok(await sb.from("inhalte").select("schluessel, wert, erstellt_am").eq("projekt_id", projekt.id).eq("status", "live").order("erstellt_am"));
+    taeglich = [...new Map(live.filter(z => Array.isArray(z.wert.eintraege)).map(z => [z.schluessel, z])).values()];
+    mkdirSync(MERK, { recursive: true }); writeFileSync(tagDatei, heute);
+    if (!taeglich.some(z => z.wert.eintraege.some(e => e.bis))) return;
+  }
+  const neueste = new Map(neu.map(z => [z.schluessel, z]));
+  const ersetzt = neu.filter(z => neueste.get(z.schluessel) !== z);
+  if (ersetzt.length) ok(await sb.from("inhalte").update({ status: "ersetzt" }).in("id", ersetzt.map(z => z.id)));
+  const liste = neu.length ? [...neueste.values()] : taeglich;
+  const kundenZeilen = neu.length ? liste : [];
+
+  git(p.ordner, "checkout", "-q", p.zweig);
+  if (p.veroeffentlichen) { try { git(p.ordner, "pull", "-q", "--ff-only"); } catch (e) { log(`[${p.slug}] pull vor Inhalten: ${e.message}`); } }
+  let erg;
+  try {
+    erg = await inhalteAnwenden(p, liste.map(z => ({ schluessel: z.schluessel, wert: z.wert })), {
+      bildHolen: async pfad => Buffer.from(await ok(await sb.storage.from("anhaenge").download(pfad)).arrayBuffer()),
+      basisUrl: projekt.live_url || p.vorschau_url || projekt.vorschau_url || "", titel: projekt.name, heute });
+    bauen(p);
+  } catch (e) {
+    zuruecksetzen(p);
+    for (const z of kundenZeilen) await sb.from("inhalte").update({ status: "fehler", meldung: `Übernehmen fehlgeschlagen: ${e.message}`.slice(0, 900) }).eq("id", z.id);
+    log(`[${p.slug}] Inhalte fehlgeschlagen: ${e.message}`);
+    return;
+  }
+  const verboten = geschuetztBeruehrt(p);
+  if (verboten.length) {
+    zuruecksetzen(p);
+    for (const z of kundenZeilen) await sb.from("inhalte").update({ status: "fehler", meldung: "Geschützte Dateien wären geändert worden" }).eq("id", z.id);
+    log(`[${p.slug}] Inhalte abgebrochen, geschützte Dateien: ${verboten.join(", ")}`);
+    return;
+  }
+  const fehler = new Map(erg.filter(e => !e.ok).map(e => [e.schluessel, e.meldung]));
+  let geliefert = { ok: true, id: null };
+  if (!sauber(p.ordner)) {
+    const titel = neu.length ? `Inhalt geändert: ${liste.filter(z => !fehler.has(z.schluessel)).map(z => z.schluessel).join(", ")}` : "Abgelaufene Neuigkeiten entfernt";
+    git(p.ordner, "add", "-A");
+    git(p.ordner, "commit", "-q", "-m", titel.slice(0, 200), "-m", "Vom Kunden im Editor geändert, übernommen vom Wächter (ohne KI).");
+    geliefert = await ausliefern(p, projekt, "inhalt", titel.slice(0, 300));
+  }
+  for (const z of kundenZeilen) {
+    const f = fehler.get(z.schluessel);
+    await sb.from("inhalte").update(f ? { status: "fehler", meldung: f.slice(0, 900) }
+      : { status: "live", veroeffentlichung_id: geliefert.id, meldung: geliefert.ok ? "" : "Übernommen – wird gleich veröffentlicht" }).eq("id", z.id);
+  }
+  log(`[${p.slug}] Inhalte: ${liste.length - fehler.size} übernommen${fehler.size ? `, ${fehler.size} fehlerhaft` : ""}`);
 }
 
 // Vom Admin im Dashboard angefragt: Commit rückgängig machen, neu bauen, veröffentlichen
@@ -117,7 +175,8 @@ async function zuruecknehmen(p, projekt, v) {
     git(p.ordner, "revert", "--no-edit", ...(eltern > 1 ? ["-m", "1"] : []), v.commit_hash);
     bauen(p);
     if (!sauber(p.ordner)) { git(p.ordner, "add", "-A"); git(p.ordner, "commit", "-q", "-m", `Neu gebaut nach Zurücknehmen von ${v.commit_hash.slice(0, 7)}`); }
-    const geliefert = await ausliefern(p, projekt, "zuruecknehmen", `Zurückgenommen: ${v.meldung}`.slice(0, 300));
+    const geliefert = (await ausliefern(p, projekt, "zuruecknehmen", `Zurückgenommen: ${v.meldung}`.slice(0, 300))).ok;
+    ok(await sb.from("inhalte").update({ status: "zurueckgenommen" }).eq("veroeffentlichung_id", v.id));
     ok(await sb.from("veroeffentlichungen").update({ zuruecknehmen: geliefert ? "erledigt" : "fehler" }).eq("id", v.id));
   } catch (e) {
     try { git(p.ordner, "revert", "--abort"); } catch (e2) {}
@@ -264,7 +323,7 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
     git(p.ordner, "add", "-A");
     const titel = fertig.length > 1 ? `Kundenwünsche (${fertig.length}): ${fertig.map(d => d.w.text.replace(/\s+/g, " ").slice(0, 30)).join(" | ")}` : `Kundenwunsch ${kurz}: ${fertig[0].w.text.replace(/\s+/g, " ").slice(0, 60)}`;
     git(p.ordner, "commit", "-q", "-m", titel.slice(0, 200), "-m", `${fertig.map(d => `- ${(erg.get(nrVon.get(d.w.id)) || {}).zusammenfassung || ""}`).join("\n")}\n\nUmgesetzt vom Wächter (Claude Code).`);
-    if (modus === "direkt") geliefert = await ausliefern(p, projekt, "wunsch", titel.slice(0, 300));
+    if (modus === "direkt") geliefert = (await ausliefern(p, projekt, "wunsch", titel.slice(0, 300))).ok;
     else git(p.ordner, "checkout", "-q", p.zweig);
     heuteZaehlen(1, p.slug);
   }
@@ -302,7 +361,7 @@ async function freigabenVeroeffentlichen(p, projekt, liste) {
       // Gebautes in den Merge-Commit aufnehmen: so nimmt „Zurücknehmen“ im Dashboard alles auf einmal zurück
       if (!sauber(p.ordner)) { git(p.ordner, "add", "-A"); git(p.ordner, "commit", "-q", "--amend", "--no-edit"); }
       if (git(p.ordner, "rev-parse", "HEAD") === vorMerge) throw new Error("Zweig enthält nichts Neues");
-      const geliefert = await ausliefern(p, projekt, "freigabe", dazu.map(w => w.text.replace(/\s+/g, " ").slice(0, 60)).join(" | ").slice(0, 300));
+      const geliefert = (await ausliefern(p, projekt, "freigabe", dazu.map(w => w.text.replace(/\s+/g, " ").slice(0, 60)).join(" | ").slice(0, 300))).ok;
       git(p.ordner, "branch", "-d", zweig);
       for (const w of dazu) await aendern(w.id, { status: "erledigt", fortschritt: geliefert ? "Veröffentlicht – auf der Website in ca. 1–2 Min. sichtbar" : "Freigegeben – wird gleich veröffentlicht" });
       log(`[${p.slug}] ${zweig} veröffentlicht (${dazu.length} Wunsch/Wünsche)`);
@@ -333,6 +392,7 @@ async function runde(meineId) {
         git(p.ordner, "checkout", "-q", p.zweig);
         await ausliefern(p, projekt, "manuell", "Nachgeholt nach fehlgeschlagenem Veröffentlichen");
       }
+      await inhalteVeroeffentlichen(p, projekt);  // Editor-Änderungen gehen immer live, auch bei Automatik „aus“ (keine KI)
       if (modus === "aus") { await lebenszeichen(projekt.id, "Wächter läuft, Automatik ist aus", slug); continue; }
 
       const liste = ok(await sb.from("wuensche").select("*").eq("projekt_id", projekt.id).order("erstellt_am"));
@@ -385,4 +445,5 @@ const sofort = () => { clearTimeout(anstoss); anstoss = setTimeout(takt, 1500); 
 sb.channel("waechter")
   .on("postgres_changes", { event: "INSERT", schema: "public", table: "wuensche" }, sofort)
   .on("postgres_changes", { event: "INSERT", schema: "public", table: "kommentare" }, sofort)
+  .on("postgres_changes", { event: "INSERT", schema: "public", table: "inhalte" }, sofort)
   .subscribe(s => log("Live-Verbindung:", s));

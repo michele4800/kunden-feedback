@@ -47,6 +47,9 @@
       },
       async dateiUrl(pfad) { const d = ok(await sb.storage.from("anhaenge").createSignedUrl(pfad, 3600)); return d.signedUrl; },
       async automatikSetzen(p, modus) { ok(await sb.from("automatik").upsert({ projekt_id: p, modus })); },
+      // Editor: Änderungen markierter Bereiche (Verlauf, neueste zuerst)
+      async inhalte(p) { return ok(await sb.from("inhalte").select("*").eq("projekt_id", p).order("erstellt_am", { ascending: false }).limit(300)); },
+      async inhaltAnlegen(z) { return ok(await sb.from("inhalte").insert(z).select().single()); },
       beobachten(p, fn) {
         const kanal = sb.channel("kf-" + p);
         for (const t of ["wuensche", "kommentare", "antworten", "automatik"])
@@ -72,12 +75,13 @@
       },
       async projektSpeichern(id, patch) { return ok(await sb.from("projekte").update(patch).eq("id", id).select().single()); },
       async zuruecknehmen(id) { ok(await sb.from("veroeffentlichungen").update({ zuruecknehmen: "angefragt" }).eq("id", id)); },
-      async kundeAnlegen(daten) {
-        const { data, error } = await sb.functions.invoke("kunde-anlegen", { body: daten });
+      // Kunden und Zugänge pflegen (Edge Function kunden-verwalten, nur Admins): anlegen, zugaenge, zugang, passwort, aendern, entfernen
+      async verwalten(aktion, daten = {}) {
+        const { data, error } = await sb.functions.invoke("kunden-verwalten", { body: { ...daten, aktion, domain: k.benutzer_domain || "kunden.example.com" } });
         if (error) {
           let text = error.message;
           try { text = (await error.context.json()).fehler || text; } catch (e) {}
-          if (/Failed to send|404/i.test(text)) text = "Die Funktion „kunde-anlegen“ ist in Supabase noch nicht eingerichtet (siehe README).";
+          if (/Failed to send|404/i.test(text)) text = "Die Funktion „kunden-verwalten“ ist in Supabase noch nicht eingerichtet (siehe README).";
           throw new Error(übersetzen(text));
         }
         return data;
@@ -187,6 +191,15 @@
         return { pfad, name: String(name).slice(0, 120), typ: blob.type, groesse: blob.size };
       },
       async dateiUrl(pfad) { try { return JSON.parse(localStorage.getItem("kf-demo-dateien") || "{}")[pfad] || ""; } catch (e) { return ""; } },
+      async inhalte(p) { return (daten().inhalte || []).filter(z => z.projekt_id === p).sort((a, b) => b.erstellt_am.localeCompare(a.erstellt_am)); },
+      async inhaltAnlegen(z) {
+        const d = daten(); d.inhalte = d.inhalte || [];
+        const neuer = { id: neu(), seite_url: "", ...z, status: "neu", meldung: "", autor: ich().id, veroeffentlichung_id: null, erstellt_am: jetzt(), geaendert_am: jetzt() };
+        d.inhalte.push(neuer); schreiben(d);
+        // Demo: die „Automatik“ übernimmt nach drei Sekunden
+        setTimeout(() => { const e = daten(), x = (e.inhalte || []).find(q => q.id === neuer.id); if (x) { x.status = "live"; x.geaendert_am = jetzt(); schreiben(e); } }, 3000);
+        return neuer;
+      },
       async automatikSetzen(p, modus) { const d = daten(); const a = d.automatik.find(x => x.projekt_id === p); if (a) a.modus = modus; else d.automatik.push({ projekt_id: p, modus }); schreiben(d); },
       beobachten(p, fn) { const f = () => fn("alle"); zuhörer.add(f); return () => zuhörer.delete(f); },
       // ---- Dashboard (Admin) – Demo: „admin“ oder „agentur“ im Namen ----
@@ -199,18 +212,56 @@
       },
       async projektSpeichern(id, patch) { const d = daten(), p = d.projekte.find(x => x.id === id); Object.assign(p, patch); schreiben(d); return p; },
       async zuruecknehmen(id) { const d = daten(), v = d.veroeffentlichungen.find(x => x.id === id); v.zuruecknehmen = "angefragt"; schreiben(d); },
-      async kundeAnlegen(x) {
+      async verwalten(aktion, x = {}) {
+        const d = daten(); d.zugaenge = d.zugaenge || [];
+        const pw = () => {
+          if (!x.passwort) return "demo-" + Math.random().toString(36).slice(2, 10);
+          if (x.passwort.length < 10) throw new Error("Passwort: mindestens 10 Zeichen");
+          return x.passwort;
+        };
+        const benutzer = () => {
+          const b = String(x.benutzername || "").trim().toLowerCase();
+          if (!/^[a-z0-9][a-z0-9._@-]{1,60}$/.test(b)) throw new Error("Benutzername: 2–40 Zeichen, Kleinbuchstaben, Ziffern, Punkt, Bindestrich");
+          return b;
+        };
+        const kunde = id => {
+          const r = d.zugaenge.find(q => q.user_id === id);
+          if (!r || r.rolle !== "kunde") throw new Error("Agentur-Zugänge (z. B. die Automatik) werden hier nicht geändert");
+          return r;
+        };
+        if (aktion === "zugaenge") return { zugaenge: [{ user_id: "demo-agentur", rolle: "agentur", anzeigename: "Michele (Automatik)", benutzername: "automatik",
+          kontakt_email: "", zuletzt: jetzt() }, ...d.zugaenge.filter(q => q.projekt_id === x.projekt_id)] };
+        if (aktion === "zugang") {
+          const b = benutzer(), p = pw();
+          d.zugaenge.push({ user_id: neu(), projekt_id: x.projekt_id, rolle: "kunde", anzeigename: x.anzeigename || b, benutzername: b, kontakt_email: x.email || "", zuletzt: null });
+          schreiben(d); return { login: b, passwort: p, vorhanden: false };
+        }
+        if (aktion === "passwort") { kunde(x.user_id); return { passwort: pw() }; }
+        if (aktion === "aendern") {
+          const r = kunde(x.user_id);
+          if (x.anzeigename) r.anzeigename = x.anzeigename;
+          if ("email" in x) r.kontakt_email = x.email;
+          if (x.benutzername) r.benutzername = benutzer();
+          schreiben(d); return { ok: true };
+        }
+        if (aktion === "entfernen") {
+          kunde(x.user_id);
+          d.zugaenge = d.zugaenge.filter(q => !(q.user_id === x.user_id && q.projekt_id === x.projekt_id));
+          schreiben(d); return { geloescht: true };
+        }
+        if (aktion !== "anlegen") throw new Error("Unbekannte Aktion");
         if (!/^[a-z0-9-]{2,60}$/.test(x.slug || "")) throw new Error("Kurzname: nur a–z, 0–9 und Bindestrich (2–60 Zeichen)");
-        const d = daten();
         if (d.projekte.some(p => p.slug === x.slug)) throw new Error("Kurzname ist schon vergeben");
+        const login = benutzer(), passwort = pw();
         const p = { id: neu(), slug: x.slug, name: x.name, vorschau_url: x.vorschau_url || "", live_url: x.live_url || "", domain: x.domain || "",
           hosting: x.hosting || "keins", entwuerfe: x.entwuerfe || [], aktiv: true, erstellt_am: jetzt() };
         d.projekte.push(p);
         d.mitglieder.push({ projekt_id: p.id, user_id: "demo-kunde", rolle: "kunde", anzeigename: x.anzeigename || x.name },
           { projekt_id: p.id, user_id: "demo-agentur", rolle: "agentur", anzeigename: "Agentur (Demo)" });
         d.automatik.push({ projekt_id: p.id, modus: x.modus || "mit_freigabe", letzter_lauf: null, hinweis: "", heute_laeufe: 0, letzter_fehler: "" });
+        d.zugaenge.push({ user_id: neu(), projekt_id: p.id, rolle: "kunde", anzeigename: x.anzeigename || x.name, benutzername: login, kontakt_email: x.email || "", zuletzt: null });
         schreiben(d);
-        return { projekt: p, kunde: { email: x.email, passwort: "demo-" + Math.random().toString(36).slice(2, 10), vorhanden: false } };
+        return { projekt: p, kunde: { login, passwort, vorhanden: false } };
       },
       beobachtenAlle(fn) { const f = () => fn("alle"); zuhörer.add(f); return () => zuhörer.delete(f); },
     };

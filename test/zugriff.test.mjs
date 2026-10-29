@@ -178,6 +178,21 @@ await test("Veröffentlichungen: Wächter schreibt, Kunde liest nur eigene, Zur�
   assert.equal(e.rows[0].zuruecknehmen, "erledigt");
 });
 
+await test("Editor-Inhalte: Kunde legt nur „neu“ an, nur im eigenen Projekt; Wächter setzt Status; Verlauf unveränderlich", async () => {
+  const r = (await als("kundeA", `insert into inhalte (projekt_id, schluessel, wert, status, autor, meldung)
+    values ($1, 'hero-titel', '{"html":"Hallo"}', 'live', $2, 'gefälscht') returning *`, [ID.projA, ID.kundeB])).rows[0];
+  assert.equal(r.status, "neu"); assert.equal(r.autor, ID.kundeA); assert.equal(r.meldung, "");
+  await fehlt("kundeA", "insert into inhalte (projekt_id, schluessel, wert) values ($1, 'x', '{}')", [ID.projB], /row-level security/);
+  await fehlt("kundeA", "insert into inhalte (projekt_id, schluessel, wert) values ($1, 'Böse Taste', '{}')", [ID.projA], /check constraint/);
+  await fehlt("kundeA", "insert into inhalte (projekt_id, schluessel, wert) values ($1, 'x', '[1]')", [ID.projA], /check constraint/);
+  assert.equal((await als("kundeA", "update inhalte set status = 'live' returning id")).rows.length, 0);
+  assert.equal((await als("kundeB", "select count(*)::int c from inhalte")).rows[0].c, 0);
+  const u = await als("claude", "update inhalte set status = 'live', meldung = 'ok' where id = $1 returning status", [r.id]);
+  assert.equal(u.rows[0].status, "live");
+  await fehlt("claude", `update inhalte set wert = '{"html":"anders"}' where id = $1`, [r.id], /unveränderlich/);
+  await fehlt("kundeA", "delete from inhalte where id = $1", [r.id], /permission denied/);
+});
+
 await test("Kunde löscht eigenen offenen Wunsch", async () => {
   const w = (await als("kundeA", "insert into wuensche (projekt_id, text) values ($1, 'weg damit') returning id", [ID.projA])).rows[0];
   const d = await als("kundeA", "delete from wuensche where id = $1 returning id", [w.id]);

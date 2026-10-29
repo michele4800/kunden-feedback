@@ -1,6 +1,6 @@
 // Agentur-Dashboard: alle Kunden, Wünsche, Veröffentlichungen und der Zustand der Automatik. Nur für Admins.
 (async function () {
-  const V = "20261029b";
+  const V = "20261030a";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
@@ -11,7 +11,12 @@
   const HOSTING = { keins: "Noch kein Hosting", github: "GitHub Pages", sftp: "SFTP (z. B. STRATO)", netlify: "Netlify" };
   const MODUS = { aus: "Automatik aus", mit_freigabe: "Mit Freigabe", direkt: "Direkt" };
   const ANLASS = { wunsch: "Wunsch", inhalt: "Editor", freigabe: "Freigabe", zuruecknehmen: "Zurückgenommen", manuell: "Manuell" };
-  let ich = null, daten = null, reiter = "kunden", stopp = null, offen = null, zeichnenNr = 0;
+  let ich = null, daten = null, reiter = "kunden", stopp = null, offen = null, offenArt = "", zeichnenNr = 0;
+  // Zugänge je Projekt (aus der Edge Function), offenes Formular („pw:<id>“, „edit:<id>“) und einmalige Meldung (neues Passwort)
+  const zugaenge = {};
+  let zgModus = "", zgMeldung = null;
+  const DOMAIN = (window.KF_KONFIG || {}).benutzer_domain || "kunden.example.com";
+  const benutzername = login => String(login || "").endsWith("@" + DOMAIN) ? login.slice(0, -(DOMAIN.length + 1)) : login;
   const filter = { status: "aktiv", projekt: "", suche: "" };
   const tippt = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && inhalt.contains(a); };
   const portal = p => `${BASIS}portal/?projekt=${encodeURIComponent(p.slug)}`;
@@ -117,12 +122,16 @@
         ${(p.entwuerfe || []).map(e => `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.name)}<span class="nur-vorleser"> (neues Fenster)</span></a>`).join("")}
         <a href="${portal(p)}">Kundenportal</a>
       </div>
-      ${offen === p.id ? einstellungen(p) : ""}
+      ${offen === p.id && offenArt === "einstellungen" ? einstellungen(p) : ""}
+      ${offen === p.id && offenArt === "zugaenge" ? zugaengeAnsicht(p) : ""}
       <div class="unten">
         <label class="nur-vorleser" for="m-${p.id}">Automatik für ${esc(p.name)}</label>
         <select id="m-${p.id}" data-modus="${p.id}" title="${esc(ww.text)}">${Object.entries(MODUS).map(([k, t]) => `<option value="${k}"${a.modus === k ? " selected" : ""}>${t}</option>`).join("")}</select>
         <span class="meta"><span class="punkt ${ww.aktiv ? "an" : ""}"></span>${a.modus === "aus" ? "aus" : ww.aktiv ? "aktiv" : "wartet"}</span>
-        <button class="btn hell klein" data-aktion="einstellungen" data-id="${p.id}" aria-expanded="${offen === p.id}">${offen === p.id ? "Schließen" : "Einstellungen"}</button>
+        <span style="display:flex;gap:6px">
+          <button class="btn hell klein" data-aktion="zugaenge" data-id="${p.id}" aria-expanded="${offen === p.id && offenArt === "zugaenge"}">Zugänge</button>
+          <button class="btn hell klein" data-aktion="einstellungen" data-id="${p.id}" aria-expanded="${offen === p.id && offenArt === "einstellungen"}">Einstellungen</button>
+        </span>
       </div>
     </article>`;
   }
@@ -139,6 +148,41 @@
       ${p.hosting === "sftp" ? `<p class="hinweis breit">Zugangsdaten zum Server stehen nie hier. Trage sie auf dem Rechner der Automatik in <code>waechter/.env</code> ein: <code>KF_ZIEL_${esc(p.slug.toUpperCase().replace(/-/g, "_"))}_PASSWORT=…</code></p>` : ""}
       <div class="zeile breit"><button class="btn klein">Speichern</button><span class="fehler" role="alert"></span></div>
     </form>`;
+  }
+
+  // ---------- Zugänge eines Kunden ----------
+  async function zugaengeLaden(pid) {
+    try { zugaenge[pid] = (await be.verwalten("zugaenge", { projekt_id: pid })).zugaenge; }
+    catch (err) { zugaenge[pid] = []; zgMeldung = { text: err.message, fehler: true }; }
+    if (offen === pid) zeichnen();
+  }
+
+  function zugaengeAnsicht(p) {
+    const liste = zugaenge[p.id];
+    const meld = zgMeldung ? `<div class="zg-meldung${zgMeldung.fehler ? " fehler" : ""}" role="status">${esc(zgMeldung.text)}
+      ${zgMeldung.kopie ? `<pre id="zg-kopie">${esc(zgMeldung.kopie)}</pre><button type="button" class="btn hell klein" data-kopieren="zg-kopie">Kopieren</button>
+        <p class="hinweis" style="margin:6px 0 0">Wird nur jetzt angezeigt.</p>` : ""}</div>` : "";
+    if (!liste) return `<div class="zugaenge">${meld}<p class="hinweis">Zugänge werden geladen …</p></div>`;
+    const feld = (id, name, label, wert = "", extra = "") => `<div><label for="${id}">${label}</label><input id="${id}" name="${name}" type="text" value="${esc(wert)}" autocomplete="off" autocapitalize="none" spellcheck="false" ${extra}></div>`;
+    return `<div class="zugaenge"><h4>Zugänge</h4>${meld}
+      <ul class="zg-liste">${liste.map(z => {
+        const kunde = z.rolle === "kunde", id = z.user_id;
+        return `<li class="zugang"><div class="zg-kopf"><div><b>${esc(z.anzeigename || z.benutzername)}</b> <span class="etikett">${kunde ? "Kunde" : "Agentur"}</span>
+          <div class="meta">Benutzername: <b>${esc(z.benutzername)}</b>${z.kontakt_email ? ` · ${esc(z.kontakt_email)}` : ""} · ${z.zuletzt ? "zuletzt angemeldet " + vor(z.zuletzt) : "noch nie angemeldet"}</div></div>
+          ${kunde ? `<div class="zg-knoepfe"><button class="btn hell klein" data-aktion="zg-pw" data-uid="${id}" aria-expanded="${zgModus === "zg-pw:" + id}">Passwort</button>
+            <button class="btn hell klein" data-aktion="zg-edit" data-uid="${id}" aria-expanded="${zgModus === "zg-edit:" + id}">Bearbeiten</button>
+            <button class="btn hell klein" data-aktion="zg-weg" data-uid="${id}">Entfernen</button></div>` : ""}</div>
+          ${zgModus === "zg-pw:" + id ? `<form class="zg-form" data-art="pw" data-uid="${id}">${feld("zp-" + id, "passwort", "Neues Passwort (leer = wird erzeugt)", "", 'minlength="10"')}
+            <div class="zeile"><button class="btn klein">Passwort setzen</button><span class="fehler" role="alert"></span></div></form>` : ""}
+          ${zgModus === "zg-edit:" + id ? `<form class="zg-form" data-art="edit" data-uid="${id}">${feld("za-" + id, "anzeigename", "Anzeigename", z.anzeigename)}
+            ${feld("zb-" + id, "benutzername", "Benutzername", z.benutzername, 'required')}${feld("ze-" + id, "email", "E-Mail (freiwillig)", z.kontakt_email)}
+            <div class="zeile"><button class="btn klein">Speichern</button><span class="fehler" role="alert"></span></div></form>` : ""}
+        </li>`; }).join("")}</ul>
+      <form class="zg-form zg-neu" data-art="neu"><b>Weiteren Zugang hinzufügen</b>
+        ${feld("zn-b-" + p.id, "benutzername", "Benutzername", "", 'required placeholder="z. B. sabine"')}${feld("zn-a-" + p.id, "anzeigename", "Anzeigename")}
+        ${feld("zn-e-" + p.id, "email", "E-Mail (freiwillig)")}${feld("zn-p-" + p.id, "passwort", "Passwort (leer = wird erzeugt)", "", 'minlength="10"')}
+        <div class="zeile"><button class="btn klein">Zugang hinzufügen</button><span class="fehler" role="alert"></span></div></form>
+    </div>`;
   }
 
   // ---------- Alle Wünsche ----------
@@ -187,10 +231,12 @@
   function neuAnsicht() {
     return `<form class="neu-form karte" id="neu-kunde">
       <div class="breit"><h2 style="margin:0 0 4px;font-size:20px">Neuen Kunden anlegen</h2>
-        <p class="hinweis" style="margin:0">Legt den Login des Kunden, das Projekt und die Automatik an. Das Passwort wird nur einmal angezeigt.</p></div>
+        <p class="hinweis" style="margin:0">Legt den Login des Kunden, das Projekt und die Automatik an. Der Kunde meldet sich mit dem Benutzernamen an. Das Passwort wird nur einmal angezeigt, du kannst es später unter „Zugänge“ jederzeit neu setzen.</p></div>
       <div><label for="n-name">Name des Kunden</label><input id="n-name" name="name" type="text" required placeholder="Bäckerei Muster"></div>
       <div><label for="n-slug">Kurzname (für Adressen)</label><input id="n-slug" name="slug" type="text" required pattern="[a-z0-9\\-]{2,60}" placeholder="baeckerei-muster"></div>
-      <div><label for="n-email">E-Mail des Kunden (Login)</label><input id="n-email" name="email" type="email" required autocomplete="off"></div>
+      <div><label for="n-benutzer">Benutzername (Login)</label><input id="n-benutzer" name="benutzername" type="text" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[a-z0-9][a-z0-9._\\-]{1,39}" placeholder="z. B. robin"></div>
+      <div><label for="n-pw">Passwort (leer = wird erzeugt)</label><input id="n-pw" name="passwort" type="text" minlength="10" autocomplete="new-password" spellcheck="false"></div>
+      <div><label for="n-email">E-Mail (freiwillig, nur Kontakt)</label><input id="n-email" name="email" type="email" autocomplete="off"></div>
       <div><label for="n-anzeige">Anzeigename</label><input id="n-anzeige" name="anzeigename" type="text" placeholder="z. B. Robin (Bäckerei)"></div>
       <div><label for="n-hosting">Hosting</label><select id="n-hosting" name="hosting">${Object.entries(HOSTING).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></div>
       <div><label for="n-modus">Automatik</label><select id="n-modus" name="modus">${Object.entries(MODUS).map(([k, t]) => `<option value="${k}"${k === "mit_freigabe" ? " selected" : ""}>${t}</option>`).join("")}</select></div>
@@ -207,10 +253,10 @@
   function ergebnis(r, x) {
     const p = r.projekt, k = r.kunde;
     const schnipsel = `<script src="${BASIS}feedback.js" data-projekt="${p.slug}" defer><\/script>`;
-    const zugang = `Euer Zugang zum Website-Portal\nAdresse: ${portal(p)}\nLogin: ${k.email}\n${k.passwort ? "Passwort: " + k.passwort : "Passwort: wie bisher"}`;
+    const zugang = `Euer Zugang zum Website-Portal\nAdresse: ${portal(p)}\nBenutzername: ${benutzername(k.login)}\n${k.passwort ? "Passwort: " + k.passwort : "Passwort: wie bisher"}`;
     const waechter = JSON.stringify({ [p.slug]: { ordner: "C:/…/" + p.slug, bauen: [], zweig: "main", veroeffentlichen: true, vorschau_url: x.vorschau_url || "" } }, null, 2);
     return `<div class="ergebnis" role="status"><h3 style="margin:0">${esc(p.name)} ist angelegt.</h3>
-      ${k.vorhanden ? `<p>Der Login ${esc(k.email)} existierte schon und wurde dem neuen Projekt zugeordnet.</p>` : `<p>Das Passwort wird nur jetzt angezeigt. Schick dem Kunden die Zugangsdaten, er kann das Passwort im Portal ändern.</p>`}
+      ${k.vorhanden ? `<p>Den Login ${esc(benutzername(k.login))} gab es schon. Er wurde dem neuen Projekt zugeordnet, sein Passwort bleibt.</p>` : `<p>Das Passwort wird nur jetzt angezeigt. Schick dem Kunden die Zugangsdaten. Ändern kannst du es später unter „Zugänge“.</p>`}
       <label>Zugangsdaten für den Kunden</label><pre id="zugang">${esc(zugang)}</pre>
       <button class="btn hell klein" data-kopieren="zugang">Zugangsdaten kopieren</button>
       <label>Auf jeder Seite der Kunden-Website vor &lt;/body&gt; einfügen</label><pre id="schnipsel">${esc(schnipsel)}</pre>
@@ -229,7 +275,23 @@
       try { await navigator.clipboard.writeText(text); t.textContent = "Kopiert"; } catch (err) { t.textContent = "Bitte von Hand markieren und kopieren"; }
       return;
     }
-    if (t.dataset.aktion === "einstellungen") { offen = offen === t.dataset.id ? null : t.dataset.id; return zeichnen(); }
+    if (t.dataset.aktion === "einstellungen" || t.dataset.aktion === "zugaenge") {
+      const art = t.dataset.aktion, zu = offen === t.dataset.id && offenArt === art;
+      offen = zu ? null : t.dataset.id; offenArt = zu ? "" : art; zgModus = ""; zgMeldung = null;
+      if (!zu && art === "zugaenge") { zugaenge[offen] = null; zeichnen(); return zugaengeLaden(offen); }
+      return zeichnen();
+    }
+    if (/^zg-/.test(t.dataset.aktion || "")) {
+      const uid = t.dataset.uid, z = (zugaenge[offen] || []).find(x => x.user_id === uid);
+      if (t.dataset.aktion === "zg-weg") {
+        if (!confirm(`${z.anzeigename} (${z.benutzername}) aus diesem Projekt entfernen?\nGehört der Zugang zu keinem anderen Projekt, wird er gelöscht.`)) return;
+        try { await be.verwalten("entfernen", { user_id: uid, projekt_id: offen }); zgMeldung = { text: `${z.anzeigename} wurde entfernt.` }; }
+        catch (err) { zgMeldung = { text: err.message, fehler: true }; }
+        return zugaengeLaden(offen);
+      }
+      zgModus = zgModus === `${t.dataset.aktion}:${uid}` ? "" : `${t.dataset.aktion}:${uid}`; zgMeldung = null;
+      return zeichnen();
+    }
     if (t.dataset.aktion === "zuruecknehmen") {
       const v = daten.veroeffentlichungen.find(x => x.id === t.dataset.id), p = daten.projekte.find(x => x.id === v.projekt_id);
       if (!confirm(`Diese Veröffentlichung bei ${p ? p.name : "dem Kunden"} zurücknehmen?\n„${v.meldung}“\n\nDie Automatik stellt den Stand davor wieder her und veröffentlicht ihn.`)) return;
@@ -266,11 +328,30 @@
       knopf.disabled = true;
       try { await be.projektSpeichern(f.dataset.projekt, patch); offen = null; await zeichnen(); }
       catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
+    } else if (f.matches(".zg-form")) {
+      const x = Object.fromEntries(new FormData(f)), art = f.dataset.art, pid = offen;
+      knopf.disabled = true;
+      try {
+        if (art === "pw") {
+          const r = await be.verwalten("passwort", { user_id: f.dataset.uid, passwort: x.passwort });
+          const z = zugaenge[pid].find(q => q.user_id === f.dataset.uid);
+          zgMeldung = { text: `Neues Passwort für ${z.anzeigename}`, kopie: `Benutzername: ${z.benutzername}\nPasswort: ${r.passwort}` };
+        } else if (art === "edit") {
+          await be.verwalten("aendern", { user_id: f.dataset.uid, anzeigename: x.anzeigename, email: x.email, benutzername: x.benutzername });
+          zgMeldung = { text: "Gespeichert." };
+        } else {
+          const r = await be.verwalten("zugang", { projekt_id: pid, ...x });
+          zgMeldung = r.vorhanden ? { text: `Den Login ${benutzername(r.login)} gab es schon – er hat jetzt Zugang zu diesem Projekt.` }
+            : { text: "Zugang angelegt", kopie: `Adresse: ${portal(daten.projekte.find(q => q.id === pid))}\nBenutzername: ${benutzername(r.login)}\nPasswort: ${r.passwort}` };
+        }
+        zgModus = "";
+        await zugaengeLaden(pid);
+      } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
     } else if (f.id === "neu-kunde") {
       const x = Object.fromEntries(new FormData(f));
       knopf.disabled = true; knopf.textContent = "Wird angelegt …";
       try {
-        const r = await be.kundeAnlegen(x);
+        const r = await be.verwalten("anlegen", x);
         f.reset(); knopf.disabled = false; knopf.textContent = "Kunde anlegen";
         document.getElementById("ergebnis").innerHTML = ergebnis(r, x);
         document.querySelector(".ergebnis").scrollIntoView({ block: "start" });

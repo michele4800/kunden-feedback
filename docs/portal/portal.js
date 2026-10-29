@@ -1,6 +1,6 @@
 // Kunden-Portal: alle Wünsche eines Projekts, Fragen, Freigabe und Export.
 (async function () {
-  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261029a"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
+  const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=20261030a"; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
   const KF = window.KundenFeedback, esc = KF.esc, be = await KF.backend();
@@ -78,11 +78,30 @@
     document.getElementById("abmelden").addEventListener("click", async () => { if (stopp) stopp(); stopp = null; projekt = null; await be.abmelden(); anmeldung(); });
   }
 
+  // ---------- Im Editor Bearbeitetes (Verlauf) ----------
+  const INHALT_STATUS = { neu: ["Wird veröffentlicht", "in_arbeit"], live: ["Online", "erledigt"], fehler: ["Nicht übernommen", "abgelehnt"],
+    ersetzt: ["Durch neuere Änderung ersetzt", ""], zurueckgenommen: ["Zurückgenommen", "rueckfrage"] };
+  function inhaltKurz(w) {
+    if (typeof w.html === "string") { const d = document.createElement("div"); d.innerHTML = w.html; const t = d.textContent.trim(); return t.length > 160 ? t.slice(0, 160) + " …" : t; }
+    if (w.href) return `${w.text || ""} → ${w.href}`;
+    if (w.pfad) return `Neues Bild${w.alt ? ": " + w.alt : ""}`;
+    if (Array.isArray(w.eintraege)) return `${w.eintraege.length} Neuigkeit${w.eintraege.length === 1 ? "" : "en"}${w.eintraege[0] ? ", u. a. „" + w.eintraege[w.eintraege.length - 1].titel + "“" : ""}`;
+    return "";
+  }
+  function inhalteAnsicht(inhalte) {
+    return `<p class="hinweis">Was auf der Website mit „Bearbeiten“ geändert wurde – neueste zuerst. Zurücknehmen kann die Agentur.</p>
+      <ul class="liste">${inhalte.map(z => { const [text, klasse] = INHALT_STATUS[z.status] || [z.status, ""]; return `<li class="w">
+        <div class="w-kopf"><strong>${esc(z.schluessel)}</strong><span class="status ${klasse}">${esc(text)}</span></div>
+        <p class="text">${esc(inhaltKurz(z.wert))}</p>
+        <div class="meta">${esc(namen[z.autor] || "")} · ${KF.zeit(z.erstellt_am)}${z.meldung ? " · " + esc(z.meldung) : ""}</div></li>`; }).join("")}</ul>`;
+  }
+
   // ---------- Hauptansicht ----------
   async function zeichnen() {
     if (!projekt || !(await be.sitzung())) return anmeldung();
-    const [mitglieder, wuensche, kommentare, fragen, antworten, auto] = await Promise.all([
-      be.mitglieder(projekt.id), be.wuensche(projekt.id), be.kommentare(projekt.id), be.fragen(projekt.id), be.antworten(projekt.id), be.automatik(projekt.id)]);
+    const [mitglieder, wuensche, kommentare, fragen, antworten, auto, inhalte] = await Promise.all([
+      be.mitglieder(projekt.id), be.wuensche(projekt.id), be.kommentare(projekt.id), be.fragen(projekt.id), be.antworten(projekt.id), be.automatik(projekt.id),
+      be.inhalte ? be.inhalte(projekt.id).catch(() => []) : []]);
     namen = Object.fromEntries(mitglieder.map(m => [m.user_id, m.anzeigename || (m.rolle === "agentur" ? "Agentur" : "Kunde")]));
     rolle = (mitglieder.find(m => m.user_id === ich.id) || {}).rolle;
     titel.innerHTML = `${esc(projekt.name)}<small>Wünsche &amp; Änderungen</small>`;
@@ -90,13 +109,14 @@
     const w8 = KF.waechterText(auto);
     const offen = wuensche.filter(w => AKTIV.includes(w.status)).length;
     const reiterListe = [["wuensche", `Wünsche (${offen} offen)`], ["fragen", `Fragen (${antworten.length}/${fragen.length})`], ["neu", "Neuer Wunsch"]];
+    if (inhalte.length) reiterListe.push(["inhalte", "Bearbeitet"]);
     if (rolle === "agentur") reiterListe.push(["export", "Export für Claude"], ["einstellungen", "Automatik"]);
     const scroll = scrollY;
     inhalt.innerHTML = `${be.istDemo ? `<p class="demo">Demo-Modus: Daten bleiben nur in diesem Browser.</p>` : ""}
       <p class="waechter"><span class="punkt${w8.aktiv ? " an" : ""}"></span>${esc(w8.text)}</p>
       <div class="reiter" role="tablist">${reiterListe.map(([id, t]) => `<button role="tab" aria-selected="${id === reiter}" data-reiter="${id}">${t}</button>`).join("")}</div>
       <section role="tabpanel">${{ wuensche: () => wunschListe(wuensche, kommentare), fragen: () => fragenAnsicht(fragen, antworten), neu: neuAnsicht,
-        export: () => exportAnsicht(wuensche, kommentare, fragen, antworten), einstellungen: () => einstellungen(auto) }[reiter]()}</section>`;
+        export: () => exportAnsicht(wuensche, kommentare, fragen, antworten), einstellungen: () => einstellungen(auto), inhalte: () => inhalteAnsicht(inhalte) }[reiter]()}</section>`;
     scrollTo(0, scroll);
     for (const a of inhalt.querySelectorAll("[data-anhang]")) { try { const u = await be.dateiUrl(a.dataset.anhang); a.href = u; a.querySelector("img").src = u; } catch (e) {} }
   }
