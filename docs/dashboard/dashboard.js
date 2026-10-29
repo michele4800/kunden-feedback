@@ -75,7 +75,7 @@
     const offeneW = d.wuensche.filter(w => AKTIV.includes(w.status));
     const fehlerV = d.veroeffentlichungen.filter(v => v.status === "fehler" && Date.now() - new Date(v.start) < 864e5);
     const reiterListe = [["kunden", `Kunden (${d.projekte.length})`], ["wuensche", `Alle Wünsche (${offeneW.length} offen)`],
-      ["veroeffentlichungen", `Veröffentlichungen${fehlerV.length ? ` (${fehlerV.length} Fehler)` : ""}`], ["neu", "Kunde anlegen"]];
+      ["veroeffentlichungen", `Veröffentlichungen${fehlerV.length ? ` (${fehlerV.length} Fehler)` : ""}`], ["neu", "Kunden verwalten"]];
     inhalt.innerHTML = `${be.istDemo ? `<p class="demo">Demo-Modus – Beispieldaten nur in diesem Browser.</p>` : ""}
       ${lage(d)}
       <div class="reiter" role="tablist">${reiterListe.map(([id, t]) => `<button role="tab" aria-selected="${reiter === id}" data-reiter="${id}">${t}</button>`).join("")}</div>
@@ -100,7 +100,7 @@
 
   // ---------- Kunden ----------
   function kundenAnsicht(d) {
-    if (!d.projekte.length) return `<p class="leer">Noch keine Kunden. Lege unter „Kunde anlegen“ den ersten an.</p>`;
+    if (!d.projekte.length) return `<p class="leer">Noch keine Kunden. Lege unter „Kunden verwalten“ den ersten an.</p>`;
     return `<div class="kunden">${d.projekte.map(p => kunde(p, d)).join("")}</div>`;
   }
 
@@ -163,7 +163,7 @@
       ${zgMeldung.kopie ? `<pre id="zg-kopie">${esc(zgMeldung.kopie)}</pre><button type="button" class="btn hell klein" data-kopieren="zg-kopie">Kopieren</button>
         <p class="hinweis" style="margin:6px 0 0">Wird nur jetzt angezeigt.</p>` : ""}</div>` : "";
     if (!liste) return `<div class="zugaenge">${meld}<p class="hinweis">Zugänge werden geladen …</p></div>`;
-    const feld = (id, name, label, wert = "", extra = "") => `<div><label for="${id}">${label}</label><input id="${id}" name="${name}" type="text" value="${esc(wert)}" autocomplete="off" autocapitalize="none" spellcheck="false" ${extra}></div>`;
+    const feld = (id, name, label, wert = "", extra = "") => `<div><label for="${id}">${label}</label><input id="${id}" name="${name}" type="${name === "passwort" ? "password" : "text"}" value="${esc(wert)}" autocomplete="${name === "passwort" ? "new-password" : "off"}" autocapitalize="none" spellcheck="false" ${extra}></div>`;
     return `<div class="zugaenge"><h4>Zugänge</h4>${meld}
       <ul class="zg-liste">${liste.map(z => {
         const kunde = z.rolle === "kunde", id = z.user_id;
@@ -227,15 +227,29 @@
     </tbody></table></div>`;
   }
 
-  // ---------- Kunde anlegen ----------
-  function neuAnsicht() {
-    return `<form class="neu-form karte" id="neu-kunde">
+  // ---------- Kunden verwalten: Übersicht + Kunde anlegen ----------
+  function verwaltenListe(d) {
+    if (!d.projekte.length) return `<div id="verwalten-liste"><p class="leer">Noch keine Kunden.</p></div>`;
+    const knopf = (p, art, text) => `<button class="btn hell klein" data-aktion="${art}" data-id="${p.id}" aria-expanded="${offen === p.id && offenArt === art}">${text}</button>`;
+    return `<div id="verwalten-liste" class="tabelle"><table class="liste"><thead><tr><th>Kunde</th><th>Kurzname</th><th class="weg">Hosting</th><th class="weg">Website</th><th>Verwalten</th></tr></thead><tbody>
+      ${d.projekte.map(p => { const website = p.live_url || p.vorschau_url; return `<tr${p.aktiv === false ? ` class="inaktiv"` : ""}>
+        <td><b>${esc(p.name)}</b>${p.aktiv === false ? ` <span class="etikett">inaktiv</span>` : ""}</td><td>${esc(p.slug)}</td>
+        <td class="weg">${esc(HOSTING[p.hosting] || HOSTING.keins)}</td>
+        <td class="weg">${website ? `<a href="${esc(website)}" target="_blank" rel="noopener">${p.live_url ? "Live" : "Vorschau"}<span class="nur-vorleser"> (neues Fenster)</span></a>` : "–"}</td>
+        <td><span style="display:flex;gap:6px;flex-wrap:wrap">${knopf(p, "zugaenge", "Zugänge")}${knopf(p, "einstellungen", "Einstellungen")}</span></td></tr>
+        ${offen === p.id ? `<tr><td colspan="5">${offenArt === "zugaenge" ? zugaengeAnsicht(p) : einstellungen(p)}</td></tr>` : ""}`; }).join("")}
+    </tbody></table></div>`;
+  }
+
+  function neuAnsicht(d) {
+    return `<h2 style="margin:0 0 10px;font-size:20px">Alle Kunden (${d.projekte.length})</h2>${verwaltenListe(d)}
+    <form class="neu-form karte" id="neu-kunde" style="margin-top:24px">
       <div class="breit"><h2 style="margin:0 0 4px;font-size:20px">Neuen Kunden anlegen</h2>
         <p class="hinweis" style="margin:0">Legt den Login des Kunden, das Projekt und die Automatik an. Der Kunde meldet sich mit dem Benutzernamen an. Das Passwort wird nur einmal angezeigt, du kannst es später unter „Zugänge“ jederzeit neu setzen.</p></div>
       <div><label for="n-name">Name des Kunden</label><input id="n-name" name="name" type="text" required placeholder="Bäckerei Muster"></div>
       <div><label for="n-slug">Kurzname (für Adressen)</label><input id="n-slug" name="slug" type="text" required pattern="[a-z0-9\\-]{2,60}" placeholder="baeckerei-muster"></div>
       <div><label for="n-benutzer">Benutzername (Login)</label><input id="n-benutzer" name="benutzername" type="text" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[a-z0-9][a-z0-9._\\-]{1,39}" placeholder="z. B. robin"></div>
-      <div><label for="n-pw">Passwort (leer = wird erzeugt)</label><input id="n-pw" name="passwort" type="text" minlength="10" autocomplete="new-password" spellcheck="false"></div>
+      <div><label for="n-pw">Passwort (leer = wird erzeugt)</label><input id="n-pw" name="passwort" type="password" minlength="10" autocomplete="new-password" spellcheck="false"></div>
       <div><label for="n-email">E-Mail (freiwillig, nur Kontakt)</label><input id="n-email" name="email" type="email" autocomplete="off"></div>
       <div><label for="n-anzeige">Anzeigename</label><input id="n-anzeige" name="anzeigename" type="text" placeholder="z. B. Robin (Bäckerei)"></div>
       <div><label for="n-hosting">Hosting</label><select id="n-hosting" name="hosting">${Object.entries(HOSTING).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></div>
@@ -354,6 +368,8 @@
         const r = await be.verwalten("anlegen", x);
         f.reset(); knopf.disabled = false; knopf.textContent = "Kunde anlegen";
         document.getElementById("ergebnis").innerHTML = ergebnis(r, x);
+        // Übersicht oben auffrischen, ohne das Ergebnis (einmaliges Passwort) wegzuwerfen
+        try { daten = await be.uebersicht(); document.getElementById("verwalten-liste").outerHTML = verwaltenListe(daten); } catch (err) {}
         document.querySelector(".ergebnis").scrollIntoView({ block: "start" });
       } catch (err) { meldung.textContent = err.message; knopf.disabled = false; knopf.textContent = "Kunde anlegen"; }
     }
