@@ -9,4 +9,6 @@ window.KF_KONFIG = {
   // In Supabase den Benutzer daher mit genau dieser Adresse anlegen (z. B. robin@kunden.example.com).
   // example.com ist reserviert und empfängt nie E-Mails – „Passwort vergessen“ geht für diese Zugänge nicht, das Passwort setzt die Agentur zurück.
   benutzer_domain: "kunden.example.com",
+  // GitHub-Konto für neue Websites: ohne Vorschau-Adresse legt die Automatik das Repo dort an (https://<konto>.github.io/<kurzname>/)
+  github_konto: "michele4800",
 };

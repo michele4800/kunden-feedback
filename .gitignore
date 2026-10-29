@@ -1,6 +1,7 @@
 node_modules/
 waechter/.env
 waechter/projekte.json
+waechter/projekte.auto.json
 waechter/.heute.json
 waechter/waechter.log
 

@@ -1,6 +1,6 @@
 // Agentur-Dashboard: alle Websites, ihre Kunden (Logins), Wünsche, Veröffentlichungen und der Zustand der Automatik. Nur für Admins.
 (async function () {
-  const V = "20261030b";
+  const V = "20261030c";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
@@ -17,6 +17,7 @@
   const zugaenge = {};
   let zgModus = "", zgMeldung = null;
   const DOMAIN = (window.KF_KONFIG || {}).benutzer_domain || "kunden.example.com";
+  const GITHUB = (window.KF_KONFIG || {}).github_konto || "michele4800";
   const benutzername = login => String(login || "").endsWith("@" + DOMAIN) ? login.slice(0, -(DOMAIN.length + 1)) : login;
   const filter = { status: "aktiv", projekt: "", suche: "" };
   const tippt = () => { const a = document.activeElement; return a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && inhalt.contains(a); };
@@ -258,7 +259,7 @@
       <div><label for="n-slug">Kurzname (für Adressen)</label><input id="n-slug" name="slug" type="text" required pattern="[a-z0-9\\-]{2,60}" placeholder="huehnerhof-schneider"></div>
       <div><label for="n-hosting">Hosting</label><select id="n-hosting" name="hosting">${Object.entries(HOSTING).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></div>
       <div><label for="n-modus">Automatik</label><select id="n-modus" name="modus">${Object.entries(MODUS).map(([k, t]) => `<option value="${k}"${k === "mit_freigabe" ? " selected" : ""}>${t}</option>`).join("")}</select></div>
-      <div><label for="n-vorschau">Vorschau-Adresse (optional)</label><input id="n-vorschau" name="vorschau_url" type="url"></div>
+      <div><label for="n-vorschau">Vorschau-Adresse (GitHub Pages)</label><input id="n-vorschau" name="vorschau_url" type="url" placeholder="leer = neues Repo ${esc(GITHUB)}/kurzname"></div>
       <div><label for="n-live">Live-Adresse (optional)</label><input id="n-live" name="live_url" type="url"></div>
       <h3 class="breit" style="margin:8px 0 0;font-size:16px">Erster Kunde (Login)</h3>
       <div><label for="n-benutzer">Benutzername (Login)</label><input id="n-benutzer" name="benutzername" type="text" required autocomplete="off" autocapitalize="none" spellcheck="false" pattern="[a-z0-9][a-z0-9._\\-]{1,39}" placeholder="z. B. robin"></div>
@@ -277,15 +278,14 @@
     const p = r.projekt, k = r.kunde;
     const schnipsel = `<script src="${BASIS}feedback.js" data-projekt="${p.slug}" defer><\/script>`;
     const zugang = `Euer Zugang zum Website-Portal\nAdresse: ${portal(p)}\nBenutzername: ${benutzername(k.login)}\n${k.passwort ? "Passwort: " + k.passwort : "Passwort: wie bisher"}`;
-    const waechter = JSON.stringify({ [p.slug]: { ordner: "C:/…/" + p.slug, bauen: [], zweig: "main", veroeffentlichen: true, vorschau_url: x.vorschau_url || "" } }, null, 2);
     return `<div class="ergebnis" role="status"><h3 style="margin:0">${esc(p.name)} ist angelegt.</h3>
       ${k.vorhanden ? `<p>Den Login ${esc(benutzername(k.login))} gab es schon. Er wurde dem neuen Projekt zugeordnet, sein Passwort bleibt.</p>` : `<p>Das Passwort wird nur jetzt angezeigt. Schick dem Kunden die Zugangsdaten. Ändern kannst du es später unter „Zugänge“.</p>`}
       <label>Zugangsdaten für den Kunden</label><pre id="zugang">${esc(zugang)}</pre>
       <button class="btn hell klein" data-kopieren="zugang">Zugangsdaten kopieren</button>
-      <label>Auf jeder Seite der Kunden-Website vor &lt;/body&gt; einfügen</label><pre id="schnipsel">${esc(schnipsel)}</pre>
-      <button class="btn hell klein" data-kopieren="schnipsel">Einbau-Code kopieren</button>
-      <label>Für die Automatik in <code>waechter/projekte.json</code> unter „projekte“ ergänzen</label><pre id="waechter">${esc(waechter)}</pre>
-      <button class="btn hell klein" data-kopieren="waechter">Eintrag kopieren</button></div>`;
+      <p><b>Den Rest erledigt die Automatik</b> in den nächsten Minuten: GitHub-Repo ${esc(x.vorschau_url)} holen (oder neu anlegen), auf deinen PC holen,
+        KI-Wunsch und Editor in jede Seite einbauen, hochladen. Klappt etwas nicht, steht der Fehler oben in der Statuszeile.</p>
+      <details><summary>Einbau-Code für Websites außerhalb von GitHub</summary><pre id="schnipsel">${esc(schnipsel)}</pre>
+      <button class="btn hell klein" data-kopieren="schnipsel">Einbau-Code kopieren</button></details></div>`;
   }
 
   // ---------- Ereignisse ----------
@@ -372,6 +372,8 @@
       } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
     } else if (f.id === "neu-kunde") {
       const x = Object.fromEntries(new FormData(f));
+      // Ohne Vorschau-Adresse legt die Automatik ein neues Repo an – die Adresse ergibt sich daraus
+      if (!x.vorschau_url.trim()) { x.vorschau_url = `https://${GITHUB}.github.io/${x.slug}/`; if (x.hosting === "keins") x.hosting = "github"; }
       knopf.disabled = true; knopf.textContent = "Wird angelegt …";
       try {
         const r = await be.verwalten("anlegen", x);

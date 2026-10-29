@@ -13,6 +13,8 @@ import { bildHinweis, fotosAblegen } from "./fotos.mjs";
 import { ansichten, seitePfad } from "./ansicht.mjs";
 import { veroeffentlichen, hatZiel } from "./ziele/index.mjs";
 import { inhalteAnwenden, heuteBerlin } from "./inhalte.mjs";
+import { einrichten } from "./einrichten.mjs";
+import os from "node:os";
 import { readFileSync, existsSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -33,6 +35,10 @@ const ENV = env();
 // So erscheint die Automatik bei Kunden (Bearbeiter); muss zum Anzeigenamen in „mitglieder“ passen
 const NAME = ENV.KF_NAME || "Michele (Automatik)";
 const KONF = JSON.parse(readFileSync(path.join(HIER, "projekte.json"), "utf8"));
+// Selbst eingerichtete Websites (aus dem Dashboard); Einträge in projekte.json gehen vor
+const AUTO = path.join(HIER, "projekte.auto.json");
+const AUTO_PROJEKTE = existsSync(AUTO) ? JSON.parse(readFileSync(AUTO, "utf8")) : {};
+KONF.projekte = { ...AUTO_PROJEKTE, ...(KONF.projekte || {}) };
 const INTERVALL = (KONF.intervall_sekunden || 60) * 1000;
 const MAX_PRO_TAG = KONF.max_pro_tag || 20;
 const CLAUDE = ENV.CLAUDE_BEFEHL || "claude";
@@ -373,8 +379,36 @@ async function freigabenVeroeffentlichen(p, projekt, liste) {
   }
 }
 
+// ---------- Neue Websites einrichten ----------
+// Fehlversuche: erst nach 30 Minuten oder geänderter Vorschau-Adresse erneut versuchen
+const einrichtenFehler = {};
+async function neueWebsites() {
+  const alle = ok(await sb.from("projekte").select("id, slug, name, vorschau_url, aktiv"));
+  for (const projekt of alle.filter(x => x.aktiv !== false && !KONF.projekte[x.slug])) {
+    const f = einrichtenFehler[projekt.slug];
+    if (f && f.url === projekt.vorschau_url && Date.now() - f.zeit < 30 * 60000) continue;
+    try {
+      log(`[${projekt.slug}] Neue Website – wird eingerichtet`);
+      const e = einrichten(projekt, { basis: KONF.projekte_ordner || path.resolve(HIER, "../../../Projekte"),
+        gitDaten: KONF.git_daten || path.join(os.homedir(), ".git-daten"),
+        widget: KONF.widget_url || "https://michele4800.github.io/kunden-feedback/feedback.js", log });
+      KONF.projekte[projekt.slug] = AUTO_PROJEKTE[projekt.slug] = e;
+      writeFileSync(AUTO, JSON.stringify(AUTO_PROJEKTE, null, 2) + "\n");
+      delete einrichtenFehler[projekt.slug];
+      await sb.from("automatik").update({ letzter_fehler: "" }).eq("projekt_id", projekt.id);
+      log(`[${projekt.slug}] eingerichtet: ${e.ordner}`);
+    } catch (err) {
+      einrichtenFehler[projekt.slug] = { zeit: Date.now(), url: projekt.vorschau_url };
+      const text = `Einrichten fehlgeschlagen: ${String(err.stderr || err.message).trim()}`.slice(0, 900);
+      log(`[${projekt.slug}]`, text);
+      await sb.from("automatik").update({ letzter_fehler: text }).eq("projekt_id", projekt.id);
+    }
+  }
+}
+
 // ---------- Hauptschleife ----------
 async function runde(meineId) {
+  try { await neueWebsites(); } catch (e) { log("Neue Websites prüfen fehlgeschlagen:", e.message); }
   for (const [slug, einst] of Object.entries(KONF.projekte)) {
     const p = { slug, zweig: "main", veroeffentlichen: false, geschuetzt: [".git", ".github/", ".gitignore"], ...einst };
     try {
@@ -446,4 +480,5 @@ sb.channel("waechter")
   .on("postgres_changes", { event: "INSERT", schema: "public", table: "wuensche" }, sofort)
   .on("postgres_changes", { event: "INSERT", schema: "public", table: "kommentare" }, sofort)
   .on("postgres_changes", { event: "INSERT", schema: "public", table: "inhalte" }, sofort)
+  .on("postgres_changes", { event: "*", schema: "public", table: "projekte" }, sofort)
   .subscribe(s => log("Live-Verbindung:", s));
