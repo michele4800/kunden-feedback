@@ -1,6 +1,6 @@
 // Agentur-Dashboard: alle Websites, ihre Kunden (Logins), Wünsche, Veröffentlichungen und der Zustand der Automatik. Nur für Admins.
 (async function () {
-  const V = "20261030c";
+  const V = "20261030d";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
@@ -49,11 +49,16 @@
     f.email.focus();
   }
 
+  function kopfZeichnen() {
+    kopfRechts.innerHTML = `<span style="margin-right:12px;font-size:14px">${esc(benutzername(ich.email || ""))}</span><button class="btn hell klein" id="mein-konto" style="margin-right:6px">Mein Konto</button><button class="btn hell klein" id="abmelden">Abmelden</button>`;
+    document.getElementById("mein-konto").addEventListener("click", () => { reiter = "konto"; offen = null; zeichnen(); });
+  }
+
   async function start() {
     const s = await be.sitzung();
     if (!s) return anmeldung();
     ich = s.user;
-    kopfRechts.innerHTML = `<span style="margin-right:12px;font-size:14px">${esc(ich.email || "")}</span><button class="btn hell klein" id="abmelden">Abmelden</button>`;
+    kopfZeichnen();
     document.getElementById("abmelden").addEventListener("click", async () => { if (stopp) stopp(); stopp = null; await be.abmelden(); anmeldung(); });
     if (!(await be.istAdmin())) {
       inhalt.innerHTML = `<div class="karte anmelden"><h2 style="margin-top:0">Nur für Admins</h2>
@@ -62,7 +67,7 @@
     }
     if (stopp) stopp();
     let warten = null;
-    stopp = be.beobachtenAlle(() => { clearTimeout(warten); warten = setTimeout(() => { if (!tippt() && !offen && !zgModus && !["neu", "kunden"].includes(reiter)) zeichnen(); }, 400); });
+    stopp = be.beobachtenAlle(() => { clearTimeout(warten); warten = setTimeout(() => { if (!tippt() && !offen && !zgModus && !["neu", "kunden", "konto"].includes(reiter)) zeichnen(); }, 400); });
     await zeichnen();
     kundenLaden();
   }
@@ -84,7 +89,7 @@
     inhalt.innerHTML = `${be.istDemo ? `<p class="demo">Demo-Modus – Beispieldaten nur in diesem Browser.</p>` : ""}
       ${lage(d)}
       <div class="reiter" role="tablist">${reiterListe.map(([id, t]) => `<button role="tab" aria-selected="${reiter === id}" data-reiter="${id}">${t}</button>`).join("")}</div>
-      <div id="ansicht">${({ websites: websiteAnsicht, kunden: kundenAnsicht, wuensche: wunschAnsicht, veroeffentlichungen: protokollAnsicht, neu: neuAnsicht })[reiter](d)}</div>`;
+      <div id="ansicht">${({ konto: kontoAnsicht, websites: websiteAnsicht, kunden: kundenAnsicht, wuensche: wunschAnsicht, veroeffentlichungen: protokollAnsicht, neu: neuAnsicht })[reiter](d)}</div>`;
   }
 
   function lage(d) {
@@ -249,6 +254,22 @@
     </tbody></table></div>`;
   }
 
+  // ---------- Mein Konto (eigener Login) ----------
+  let kontoMeldung = "";
+  function kontoAnsicht() {
+    const pw = (id, label, extra = "") => `<div><label for="${id}">${label}</label><input id="${id}" name="${id}" type="password" autocomplete="${id === "k-alt" ? "current-password" : "new-password"}" ${extra}></div>`;
+    return `<form class="neu-form karte" id="konto-form">
+      <div class="breit"><h2 style="margin:0 0 4px;font-size:20px">Mein Konto</h2>
+        <p class="hinweis" style="margin:0">Dein eigener Login fürs Dashboard. Zum Speichern brauchst du dein aktuelles Passwort.</p></div>
+      ${kontoMeldung ? `<p class="breit zg-meldung" role="status">${esc(kontoMeldung)}</p>` : ""}
+      <div><label for="k-benutzer">Benutzername</label><input id="k-benutzer" name="benutzername" type="text" required autocomplete="username" autocapitalize="none" spellcheck="false" value="${esc(benutzername(ich.email || ""))}"></div>
+      <div><label for="k-anzeige">Anzeigename</label><input id="k-anzeige" name="anzeigename" type="text" value="${esc((ich.user_metadata || {}).anzeigename || "")}"></div>
+      ${pw("k-neu", "Neues Passwort (leer = bleibt)", 'minlength="10"')}${pw("k-neu2", "Neues Passwort wiederholen")}
+      ${pw("k-alt", "Aktuelles Passwort", "required")}
+      <div class="zeile breit"><button class="btn">Speichern</button><span class="fehler" role="alert"></span></div>
+    </form>`;
+  }
+
   // ---------- Neue Website (mit erstem Kunden-Login) ----------
   function neuAnsicht() {
     return `<form class="neu-form karte" id="neu-kunde">
@@ -370,6 +391,18 @@
         zgModus = "";
         await kundenLaden();
       } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
+    } else if (f.id === "konto-form") {
+      const x = Object.fromEntries(new FormData(f));
+      if (x["k-neu"] !== x["k-neu2"]) { meldung.textContent = "Die beiden neuen Passwörter sind nicht gleich."; return; }
+      knopf.disabled = true;
+      try {
+        const r = await be.verwalten("ich", { benutzername: x.benutzername.trim(), anzeigename: x.anzeigename.trim(), passwort_alt: x["k-alt"], passwort_neu: x["k-neu"] });
+        // Neu anmelden, damit Name und Sitzung zum geänderten Login passen
+        await be.anmelden(r.login || ich.email, x["k-neu"] || x["k-alt"]);
+        ich = (await be.sitzung()).user; kopfZeichnen();
+        kontoMeldung = x["k-neu"] ? "Gespeichert – ab jetzt gilt dein neues Passwort." : "Gespeichert.";
+        await zeichnen(); kontoMeldung = "";
+      } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
     } else if (f.id === "neu-kunde") {
       const x = Object.fromEntries(new FormData(f));
       // Ohne Vorschau-Adresse legt die Automatik ein neues Repo an – die Adresse ergibt sich daraus
@@ -387,7 +420,7 @@
   });
 
   // Ohne Live-Verbindung (oder im Demo-Modus) zumindest jede Minute auffrischen
-  setInterval(() => { if (daten && !tippt() && !offen && !zgModus && !["neu", "kunden"].includes(reiter)) zeichnen(); }, 60000);
+  setInterval(() => { if (daten && !tippt() && !offen && !zgModus && !["neu", "kunden", "konto"].includes(reiter)) zeichnen(); }, 60000);
   be.beiAnmeldung(ereignis => { if (ereignis === "SIGNED_OUT") anmeldung(); });
   start();
 })();

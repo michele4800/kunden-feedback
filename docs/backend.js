@@ -237,6 +237,11 @@
           schreiben(d); return { login: b, passwort: p, vorhanden: false };
         }
         if (aktion === "passwort") { kunde(x.user_id); return { passwort: pw() }; }
+        if (aktion === "ich") {
+          if (!x.passwort_alt) throw new Error("Das aktuelle Passwort stimmt nicht");
+          if (x.passwort_neu && x.passwort_neu.length < 10) throw new Error("Neues Passwort: mindestens 10 Zeichen");
+          return { login: x.benutzername ? benutzer() : "" };
+        }
         if (aktion === "aendern") {
           const r = kunde(x.user_id);
           if (x.anzeigename) r.anzeigename = x.anzeigename;

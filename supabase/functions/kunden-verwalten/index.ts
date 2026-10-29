@@ -11,6 +11,7 @@
 //   passwort  – Passwort eines Kunden setzen (leer = neues erzeugen)
 //   aendern   – Anzeigename, Kontakt-E-Mail oder Benutzername eines Kunden ändern
 //   entfernen – Kunden aus einem Projekt entfernen; gehört er zu keinem Projekt mehr, wird der Login gelöscht
+//   ich       – den eigenen Login ändern (Benutzername, Anzeigename, Passwort) – nur mit dem aktuellen Passwort
 // Agentur-Logins (z. B. die Automatik) lassen sich hier bewusst nicht ändern – sonst könnte man den Wächter aussperren.
 import { createClient, SupabaseClient } from "jsr:@supabase/supabase-js@2";
 
@@ -46,8 +47,9 @@ Deno.serve(async req => {
     const text = (k: string, max: number) => String(d[k] ?? "").trim().slice(0, max);
     const domain = text("domain", 100).toLowerCase() || "kunden.example.com";
     if (!DOMAIN.test(domain)) throw new Fehler(400, "Ungültige Benutzer-Domain");
-    const ctx = { nutzer, dienst, d, text, domain };
-    const aktionen: Record<string, (c: typeof ctx) => Promise<unknown>> = { anlegen, zugaenge, zugang, passwort, aendern, entfernen };
+    const token = (req.headers.get("Authorization") ?? "").replace(/^Bearer\s+/i, "");
+    const ctx = { nutzer, dienst, d, text, domain, token, url };
+    const aktionen: Record<string, (c: typeof ctx) => Promise<unknown>> = { anlegen, zugaenge, zugang, passwort, aendern, entfernen, ich };
     const f = aktionen[String(d.aktion)];
     if (!f) throw new Fehler(400, "Unbekannte Aktion");
     return antwort(200, await f(ctx));
@@ -56,7 +58,7 @@ Deno.serve(async req => {
   }
 });
 
-type Ctx = { nutzer: SupabaseClient; dienst: SupabaseClient; d: Record<string, unknown>; text: (k: string, max: number) => string; domain: string };
+type Ctx = { nutzer: SupabaseClient; dienst: SupabaseClient; d: Record<string, unknown>; text: (k: string, max: number) => string; domain: string; token: string; url: string };
 
 // Benutzername → Login-Adresse; wer eine echte Adresse als Benutzernamen angibt, meldet sich damit an
 function loginAdresse(c: Ctx, feld = "benutzername") {
@@ -192,4 +194,34 @@ async function entfernen(c: Ctx) {
   const { data: rest } = await c.nutzer.from("mitglieder").select("projekt_id").eq("user_id", user_id);
   if (!rest?.length) await c.dienst.auth.admin.deleteUser(user_id);
   return { geloescht: !rest?.length };
+}
+
+// Eigenen Login ändern (auch als Admin). Zur Sicherheit nur mit dem aktuellen Passwort – ein offen gelassenes Dashboard reicht nicht.
+async function ich(c: Ctx) {
+  const { data: u } = await c.nutzer.auth.getUser(c.token);
+  const user = u?.user;
+  if (!user?.email) throw new Fehler(401, "Nicht angemeldet");
+  const pruefen = createClient(c.url, Deno.env.get("SUPABASE_ANON_KEY")!, { auth: { persistSession: false } });
+  const { error: e0 } = await pruefen.auth.signInWithPassword({ email: user.email, password: String(c.d.passwort_alt ?? "") });
+  if (e0) throw new Fehler(400, "Das aktuelle Passwort stimmt nicht");
+  const patch: Record<string, unknown> = {};
+  if (c.text("benutzername", 254)) {
+    const adresse = loginAdresse(c);
+    if (adresse !== user.email.toLowerCase()) {
+      const anderer = await loginSuchen(c, adresse);
+      if (anderer && anderer.id !== user.id) throw new Fehler(400, "Diesen Benutzernamen gibt es schon");
+      patch.email = adresse; patch.email_confirm = true;
+    }
+  }
+  const neu = String(c.d.passwort_neu ?? "");
+  if (neu) {
+    if (neu.length < 10 || neu.length > 72) throw new Fehler(400, "Neues Passwort: mindestens 10 Zeichen");
+    patch.password = neu;
+  }
+  if (c.text("anzeigename", 120)) patch.user_metadata = { ...(user.user_metadata ?? {}), anzeigename: c.text("anzeigename", 120) };
+  if (Object.keys(patch).length) {
+    const { error } = await c.dienst.auth.admin.updateUserById(user.id, patch);
+    if (error) throw new Fehler(400, error.message);
+  }
+  return { login: (patch.email as string) ?? user.email };
 }
