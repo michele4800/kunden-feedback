@@ -19,6 +19,18 @@
   const absenden = text => `<button type="submit" style="justify-self:start;padding:13px 24px;border:0;border-radius:999px;background:var(--kf-akzent,#333);color:var(--kf-auf-akzent,#fff);font:inherit;font-weight:600;cursor:pointer">${text}</button><p data-komp-meldung></p>`;
   const formular = (art, titel, innen, knopf) => sek(`<h2>${titel}</h2><form data-komp="formular" data-formular="${art}" style="display:grid;gap:14px;max-width:600px">${innen}${einwilligung}${absenden(knopf)}</form>`);
   const frage = (f, a) => `<details style="border-bottom:1px solid var(--kf-linie,rgba(0,0,0,.15));padding:4px 0"><summary style="cursor:pointer;font-weight:600;padding:12px 0">${f}</summary><p>${a}</p></details>`;
+  // Speisekarte: Gruppen mit Gerichten, Preis rechtsbündig – reines HTML, kein Skript
+  const gericht = (name, preis, text) => `<div style="padding:12px 0;border-bottom:1px dotted var(--kf-linie,rgba(0,0,0,.3))"><p style="display:flex;justify-content:space-between;align-items:baseline;gap:16px;margin:0;font-weight:600"><span>${name}</span><span style="white-space:nowrap">${preis}</span></p><p style="margin:4px 0 0;font-size:.92em;opacity:.8">${text}</p></div>`;
+  const gruppe = (titel, inhalt) => `<div><h3 style="margin:0 0 6px">${titel}</h3>${inhalt}</div>`;
+  // Social Media: nur Links mit Symbol und sichtbarem Namen – kein eingebetteter Feed, keine Daten an Dritte
+  const SOZIAL = {
+    Instagram: ['https://www.instagram.com/', '<rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".9" fill="currentColor" stroke="none"/>'],
+    Facebook: ['https://www.facebook.com/', '<path d="M14 21v-8h3l.5-3.5H14V7.8c0-1 .4-1.8 1.8-1.8H18V3.1A22 22 0 0 0 15.4 3C12.8 3 11 4.6 11 7.4v2.1H8V13h3v8"/>'],
+    YouTube: ['https://www.youtube.com/', '<rect x="2" y="5" width="20" height="14" rx="4"/><path d="m10 9 5 3-5 3z"/>'],
+    TikTok: ['https://www.tiktok.com/', '<path d="M14 3v11.5a3.5 3.5 0 1 1-3.5-3.5M14 3c.5 2.6 2.4 4.5 5 4.6"/>'],
+    WhatsApp: ['https://wa.me/', '<path d="m3.5 20.5 1.4-4.2A8.5 8.5 0 1 1 8 19.3z"/><path d="M9 9.5c.3 2 2.6 4.6 5.5 5"/>'],
+  };
+  const sozial = namen => `<div style="display:flex;flex-wrap:wrap;gap:10px">${namen.map(n => `<a href="${SOZIAL[n][0]}" target="_blank" style="display:inline-flex;align-items:center;gap:8px;padding:10px 16px;border:1px solid var(--kf-linie,rgba(0,0,0,.2));border-radius:999px;color:inherit;text-decoration:none;font-weight:600"><svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${SOZIAL[n][1]}</svg><span>${n}</span></a>`).join("")}</div>`;
   const S = "Sektionen", E = "Elemente", K = "Komponenten";
   const KOMPONENTEN = [
     { id: "kontaktformular", category: K, label: "Kontaktformular", media: ikon('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M7 9h10M7 13h10M7 17h5"/>'),
@@ -43,6 +55,18 @@
       content: `<div data-komp="youtube" data-video="" data-titel="Video" style="aspect-ratio:16/9;background:#1b1b19;color:#fff;display:grid;place-items:center;text-align:center;padding:20px;border-radius:8px"><div><p style="margin:0 0 12px;font-weight:600">Video von YouTube</p><button type="button" style="padding:11px 20px;border:0;border-radius:999px;background:#fff;color:#1b1b19;font:inherit;font-weight:600;cursor:pointer">Video laden</button><p style="font-size:13px;opacity:.8;margin:12px 0 0">Erst beim Laden werden Daten an YouTube (Google) übertragen.</p></div></div>` },
     { id: "videohintergrund", category: K, label: "Video-Hintergrund", media: ikon('<rect x="2" y="4" width="20" height="16" rx="2"/><path d="m10 9 5 3-5 3z"/><path d="M2 16h20"/>'),
       content: `<section data-komp="videohintergrund" style="position:relative;overflow:hidden;min-height:60vh;display:grid;place-items:center;padding:72px 20px;color:#fff;background:#1b1b19"><video data-hintergrund="" autoplay muted loop playsinline preload="metadata" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:.7"></video><div style="position:relative;max-width:800px;text-align:center"><h2>Überschrift über dem Video</h2><p>Ein kurzer Satz.</p></div></section>` },
+    { id: "speisekarte", category: K, label: "Speisekarte", media: ikon('<path d="M6 3v18M4 3v5a2 2 0 0 0 4 0V3M17 21V3c-2 1-3 3.5-3 7h3"/>'),
+      content: sek(`<h2 style="text-align:center;margin:0 auto 36px">Speisekarte</h2><div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:40px 56px">${
+        gruppe("Vorspeisen", gericht("Tagessuppe", "5,50 €", "Fragt nach der Suppe des Tages") + gericht("Bunter Salat", "7,90 €", "Mit Hausdressing und Brot"))
+        + gruppe("Hauptgerichte", gericht("Gericht", "14,50 €", "Kurze Beschreibung, z. B. Beilagen") + gericht("Vegetarisches Gericht", "12,90 €", "Kurze Beschreibung"))
+        + gruppe("Getränke", gericht("Hausgemachte Limonade", "3,80 €", "0,4 l") + gericht("Kaffee", "2,60 €", "Auch mit Hafermilch"))}</div><p style="margin:28px auto 0;font-size:.85em;opacity:.75;text-align:center">Alle Preise inkl. MwSt. Infos zu Allergenen bekommt ihr bei uns.</p>`) },
+    { id: "speisekarte-gruppe", category: K, label: "Speisekarten-Gruppe", media: ikon('<path d="M4 5h16M4 10h10M4 14h10M4 18h10M18 14h2M18 18h2"/>'),
+      content: gruppe("Neue Gruppe", gericht("Gericht", "0,00 €", "Kurze Beschreibung") + gericht("Gericht", "0,00 €", "Kurze Beschreibung")) },
+    { id: "gericht", category: K, label: "Gericht", media: ikon('<path d="M4 10h11M4 15h7M18 10h2"/>'), content: gericht("Gericht", "0,00 €", "Kurze Beschreibung") },
+    { id: "social-media", category: K, label: "Social Media", media: ikon('<circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="6" r="2.5"/><circle cx="18" cy="18" r="2.5"/><path d="m8.2 10.8 7.6-3.6M8.2 13.2l7.6 3.6"/>'),
+      content: sek(`<div style="text-align:center;display:grid;justify-items:center;gap:8px"><h2>Folgt uns</h2><p>Neuigkeiten, Fotos und Aktionen findet ihr auch hier:</p>${sozial(["Instagram", "Facebook", "YouTube", "TikTok", "WhatsApp"])}</div>`) },
+    { id: "social-leiste", category: K, label: "Social-Media-Leiste", media: ikon('<circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/>'),
+      content: sozial(["Instagram", "Facebook"]) },
   ];
   window.KF_BLOECKE = [
     { id: "ueber-uns", category: S, label: "Über uns", media: ikon('<circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/>'),
