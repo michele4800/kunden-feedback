@@ -83,7 +83,17 @@ function heuteZaehlen(plus = 0, slug = "") {
 
 // ---------- Git ----------
 const git = (ordner, ...args) => execFileSync("git", args, { cwd: ordner, encoding: "utf8" }).trim();
-const sauber = ordner => git(ordner, "status", "--porcelain") === "";
+// desktop.ini legt Windows/Drive-Sync von selbst an – lokal ignorieren, sonst wartet die Automatik ewig auf einen „sauberen“ Ordner
+const ignoriert = new Set();
+const sauber = ordner => {
+  if (!ignoriert.has(ordner)) {
+    const datei = path.resolve(ordner, git(ordner, "rev-parse", "--git-path", "info/exclude").trim());  // .git kann auch eine Verweis-Datei sein
+    const alt = existsSync(datei) ? readFileSync(datei, "utf8") : "";
+    if (!/^desktop\.ini$/mi.test(alt)) { mkdirSync(path.dirname(datei), { recursive: true }); appendFileSync(datei, `${alt && !alt.endsWith("\n") ? "\n" : ""}desktop.ini\n`); }
+    ignoriert.add(ordner);
+  }
+  return git(ordner, "status", "--porcelain") === "";
+};
 function bauen(p) {
   if (!p.bauen) return;
   execFileSync(p.bauen[0], p.bauen.slice(1), { cwd: p.ordner, encoding: "utf8", stdio: "pipe", timeout: 300000 });
