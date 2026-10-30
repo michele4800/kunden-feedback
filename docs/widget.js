@@ -172,9 +172,10 @@
 .kf-liste{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .kf-w{border:1px solid #e3e1da;border-radius:10px;padding:12px}
 .kf-w p{margin:6px 0 0;white-space:pre-wrap;word-break:break-word}
-.kf-zu{padding:8px 12px;background:#fafaf8}.kf-zu summary{cursor:pointer;list-style:none}.kf-zu summary::-webkit-details-marker{display:none}
-.kf-zu summary p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#57534e}.kf-zu details[open] summary p{white-space:pre-wrap;color:inherit}
-.kf-auf{float:right;font-size:13px;color:#2f6f8a;text-decoration:underline}.kf-zu details[open] .kf-auf{display:none}
+.kf-eingeklappt{padding:8px 12px;background:#fafaf8;min-width:0;overflow:hidden}.kf-eingeklappt details{min-width:0}.kf .kf-eingeklappt summary{display:block;cursor:pointer;list-style:none;font:inherit;margin:0;padding:0;min-width:0}.kf-eingeklappt summary::-webkit-details-marker{display:none}
+/* Seiten-Stile (z. B. FAQ-Aufklapper) dürfen hier nicht durchschlagen */
+.kf .kf-eingeklappt summary p{font:400 15px/1.45 system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:normal;max-width:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#57534e}.kf .kf-eingeklappt details[open] summary p{white-space:pre-wrap;color:inherit}
+.kf-auf{float:right;font-size:13px;color:#2f6f8a;text-decoration:underline}.kf-eingeklappt details[open] .kf-auf{display:none}
 .kf-w .kf-neu{margin:10px 0 0;font-size:14px}
 .kf-status{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;background:#ecebe6}
 .kf-status.in_arbeit{background:#dbeafe;color:#1e3a8a}.kf-status.rueckfrage{background:#fde68a;color:#78350f}
@@ -362,7 +363,7 @@
 
     // Erledigte Wünsche sind eingeklappt; was der Kunde aufklappt, bleibt beim Neuzeichnen offen
     const aufgeklappt = new Set();
-    document.addEventListener("toggle", e => { const el = e.target; if (el.tagName === "DETAILS" && el.closest(".kf-zu")) el.open ? aufgeklappt.add(el.dataset.id) : aufgeklappt.delete(el.dataset.id); }, true);
+    document.addEventListener("toggle", e => { const el = e.target; if (el.tagName === "DETAILS" && el.closest(".kf-eingeklappt")) el.open ? aufgeklappt.add(el.dataset.id) : aufgeklappt.delete(el.dataset.id); }, true);
     function karte(w, nr, ks, ichId) {
       const d = w.details || {}, meins = w.autor === ichId;
       const arbeit = w.status === "in_arbeit"
@@ -384,7 +385,7 @@
         <div class="kf-k">${ks.filter(k => !(w.status === "rueckfrage" && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}:</b> ${esc(k.text)}</div>`).join("")}
           ${w.status === "rueckfrage" ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="kf-nur" for="kf-k-${w.id}">Antwort zu diesem Wunsch</label>
             <input id="kf-k-${w.id}" maxlength="5000" placeholder="Antworten…"><button class="kf-btn klein">Senden</button></form>`}</div>`;
-      return zu ? `<li class="kf-w kf-zu"><details data-id="${w.id}"${aufgeklappt.has(w.id) ? " open" : ""}><summary>${kopf}</summary>${rest}</details></li>` : `<li class="kf-w">${kopf}${rest}</li>`;
+      return zu ? `<li class="kf-w kf-eingeklappt"><details data-id="${w.id}"${aufgeklappt.has(w.id) ? " open" : ""}><summary>${kopf}</summary>${rest}</details></li>` : `<li class="kf-w">${kopf}${rest}</li>`;
     }
     // Rückfrage der Automatik: Vorschläge zum Antippen und immer ein freies Antwortfeld
     function antwortBox(w) {

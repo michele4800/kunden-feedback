@@ -13,8 +13,37 @@
   const zuEmail = (eingabe, k) => { const e = String(eingabe || "").trim().toLowerCase(); return e.includes("@") ? e : `${e}@${(k && k.benutzer_domain) || "kunden.example.com"}`; };
   KF.zuEmail = zuEmail;
 
+  // Anmeldung je Tab: Jeder Tab merkt sich in sessionStorage, welches Konto er nutzt. Die Sitzungen selbst liegen je Konto
+  // in localStorage – Tabs mit demselben Konto teilen sich also die Schlüssel, ein anderes Konto im Nachbartab stört nicht.
+  // Ein neuer Tab startet mit dem zuletzt angemeldeten Konto. Eigener storageKey je Tab, damit Supabase Anmeldungen
+  // nicht per BroadcastChannel in alle Tabs überträgt.
+  const LETZTE = "kf-sitzung-letzte", TAB = "kf-tab-konto";
+  const ss = { get: n => { try { return sessionStorage.getItem(n); } catch (e) { return null; } }, set: (n, v) => { try { v == null ? sessionStorage.removeItem(n) : sessionStorage.setItem(n, v); } catch (e) {} } };
+  const ls = { get: n => { try { return localStorage.getItem(n); } catch (e) { return null; } }, set: (n, v) => { try { v == null ? localStorage.removeItem(n) : localStorage.setItem(n, v); } catch (e) {} } };
+  function tabSchluessel() {
+    let id = ss.get("kf-tab-id");
+    if (!id) { id = Math.random().toString(36).slice(2, 10); ss.set("kf-tab-id", id); }
+    return `kf-sitzung-tab-${id}`;
+  }
+  function tabSpeicher(schluessel) {
+    if (!ss.get(TAB)) { const alt = ls.get("kf-sitzung"); if (alt) { try { const u = JSON.parse(alt).user.id; ls.set(`kf-sitzung-${u}`, alt); ls.set(LETZTE, u); } catch (e) {} ls.set("kf-sitzung", null); } }  // frühere gemeinsame Sitzung übernehmen
+    // Ein Tab ohne eigenes Konto übernimmt einmal das zuletzt angemeldete und bleibt dann dabei
+    const konto = () => { let u = ss.get(TAB); if (!u && (u = ls.get(LETZTE))) ss.set(TAB, u); return u; };
+    return {
+      // Nebenschlüssel von Supabase (z. B. „…-code-verifier“) bleiben einfach im Tab
+      getItem: n => { if (n !== schluessel) return ss.get(n); const u = konto(); return u ? ls.get(`kf-sitzung-${u}`) : null; },
+      setItem: (n, wert) => {
+        if (n !== schluessel) return ss.set(n, wert);
+        let u = null; try { u = JSON.parse(wert).user.id; } catch (e) {}
+        if (!u) return;
+        ls.set(`kf-sitzung-${u}`, wert); ss.set(TAB, u); ls.set(LETZTE, u);
+      },
+      removeItem: n => { if (n !== schluessel) return ss.set(n, null); const u = konto(); if (u) ls.set(`kf-sitzung-${u}`, null); if (ls.get(LETZTE) === u) ls.set(LETZTE, null); ss.set(TAB, null); },
+    };
+  }
+
   function supabaseBackend(k) {
-    const sb = window.supabase.createClient(k.url, k.schluessel, { auth: { persistSession: true, storageKey: "kf-sitzung" } });
+    const sb = window.supabase.createClient(k.url, k.schluessel, { auth: { persistSession: true, storageKey: tabSchluessel(), storage: tabSpeicher(tabSchluessel()) } });
     const ok = ({ data, error }) => { if (error) throw new Error(übersetzen(error.message)); return data; };
     return {
       istDemo: false,
