@@ -425,6 +425,9 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
       else if (modus === "direkt") await aendern(d.w.id, { status: "erledigt", fertig_bis: null, fortschritt: hatZiel(p) ? "Jetzt auf der Website zu sehen" : "Umgesetzt" });
       else await aendern(d.w.id, { status: "zur_freigabe", details: { ...(d.w.details || {}), zweig }, fortschritt: "Umgesetzt – wartet auf Freigabe durch die Agentur", fertig_bis: null });
       await kommentieren(d.w.id, e.zusammenfassung);
+    } else if (e.ergebnis === "zurueckgezogen") {
+      await aendern(d.w.id, { status: "abgelehnt", bearbeiter: NAME, fortschritt: "Vom Kunden zurückgezogen", fertig_bis: null });
+      await kommentieren(d.w.id, e.zusammenfassung || "Alles klar – dann lassen wir es so.");
     } else if (e.ergebnis === "rueckfrage" || (e.ergebnis === "erledigt" && nichtsGeaendert)) {
       await rueckfragen(d.w, e.frage ? e : { frage: "Ich konnte nichts finden, was ich ändern müsste. Könnt ihr genauer beschreiben, was anders sein soll?" });
     } else {

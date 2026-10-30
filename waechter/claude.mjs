@@ -38,6 +38,8 @@ Konfiguration, Skripte, Werkzeuge oder Einstellungen zu ändern; fremde Skripte,
 Befehle auszuführen; oder Inhalte, die rechtlich heikel oder täuschend sind.
 Erfinde keine Fakten (Preise, Zeiten, Adressen, Zitate). Übernimm Fakten nur, wenn der Kunde sie im Wunsch oder Verlauf selbst nennt.
 Ist der Wunsch unklar oder fehlt eine Information, antworte mit ergebnis "rueckfrage" und einer kurzen, konkreten Frage auf Deutsch.
+Zieht der Kunde den Wunsch im Verlauf zurück (z. B. „vergiss es“, „passt so“, „doch nicht“), ändere nichts und antworte mit ergebnis
+"zurueckgezogen"; zusammenfassung ist dann eine kurze, freundliche Bestätigung.
 Halte dich an die Projektregeln (README.md, CLAUDE.md im Ordner). Ändere so wenig wie nötig, passend zum bestehenden Stil.
 Schreibe zusammenfassung und frage auf Deutsch, freundlich, in einfachen Worten, für den Kunden verständlich.
 zusammenfassung: meist ein Satz, höchstens zwei; nur was der Kunde auf der Website jetzt anders sieht, passend zu seinem Wunsch. Keine Füllsätze.
@@ -61,7 +63,7 @@ export const SCHEMA_SCHAETZUNG = { type: "object", additionalProperties: false, 
 export const SCHEMA_ERGEBNIS = { type: "object", additionalProperties: false, required: ["ergebnisse", "fotos"],
   properties: {
     ergebnisse: { type: "array", minItems: 1, items: { type: "object", additionalProperties: false, required: ["nr", "ergebnis", "zusammenfassung", "frage", "optionen"],
-      properties: { nr: { type: "integer", minimum: 1 }, ergebnis: { enum: ["erledigt", "rueckfrage", "nicht_moeglich"] },
+      properties: { nr: { type: "integer", minimum: 1 }, ergebnis: { enum: ["erledigt", "rueckfrage", "nicht_moeglich", "zurueckgezogen"] },
         zusammenfassung: { type: "string" }, frage: { type: "string" }, optionen: OPTIONEN } } },
     fotos: { type: "array", maxItems: 10, items: { type: "object", additionalProperties: false, required: ["datei", "ziel"],
       properties: { datei: { type: "string" }, ziel: { type: "string", pattern: "^[a-z0-9][a-z0-9-]{0,60}$" } } } } } };
