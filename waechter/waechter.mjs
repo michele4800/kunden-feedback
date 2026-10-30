@@ -16,6 +16,7 @@ import { inhalteAnwenden, heuteBerlin } from "./inhalte.mjs";
 import { einrichten } from "./einrichten.mjs";
 import { kiApi } from "./ki.mjs";
 import os from "node:os";
+import net from "node:net";
 import { readFileSync, existsSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
@@ -476,6 +477,14 @@ async function runde(meineId) {
     }
   }
 }
+
+// Nur ein Wächter gleichzeitig: mehrere bearbeiten sonst denselben Wunsch und löschen sich gegenseitig Fotos und Zweige.
+// Der Port wird beim Prozessende vom System freigegeben, eine verwaiste Sperre gibt es also nicht.
+await new Promise(weiter => net.createServer().once("error", e => {
+  if (e.code !== "EADDRINUSE") throw e;
+  log("Es läuft schon ein Wächter – dieser beendet sich.");
+  process.exit(3);  // 3 = waechter-starten.cmd startet nicht neu
+}).listen(KONF.sperr_port || 47813, "127.0.0.1", weiter).unref());
 
 const anmeldung = ok(await sb.auth.signInWithPassword({ email: ENV.KF_EMAIL, password: ENV.KF_PASSWORT }));
 const meineId = anmeldung.user.id;

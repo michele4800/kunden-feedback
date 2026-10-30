@@ -4,6 +4,7 @@ title Kunden-Feedback Waechter
 cd /d "%~dp0"
 :neu
 call npm run waechter
+if %errorlevel%==3 exit /b
 echo.
 echo Waechter wurde beendet. Neustart in 60 Sekunden (Strg+C zum Abbrechen) ...
 timeout /t 60 /nobreak >nul
