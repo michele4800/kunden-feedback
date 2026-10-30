@@ -109,13 +109,37 @@ hinzufügen oder entfernen. Agentur-Zugänge (die Automatik) sind dort bewusst g
 Auf jeder Seite erscheint links neben „KI-Wunsch“ der Knopf **Editor**. Er öffnet einen Vollbild-Baukasten
 (`docs/studio/`, Grundlage [GrapesJS](https://grapesjs.com) 0.23.8, BSD-Lizenz, lokal in `docs/vendor/`) direkt über der Seite:
 
-- **Hinzufügen**: Sektionen (Über uns, Angebot, Kontakt, Text+Bild, Galerie, Zitat, Aufruf) und Elemente per Drag-and-Drop.
+- **Hinzufügen**: Sektionen (Über uns, Angebot, Kontakt, Text+Bild, Galerie, Zitat, Aufruf), Elemente und **Komponenten**
+  per Drag-and-Drop: Kontakt-, Anfrage- und Feedback-Formular (Felder frei zusammenstellbar), Fragen & Antworten (`<details>`),
+  Bilder-Reihe (Slider, Scroll-Snap), Galerie mit Großansicht, YouTube-Video (lädt erst nach Klick), Video-Hintergrund.
 - **Gestalten**: Abstände, Größen, Schrift, Farben, Rahmen fürs ausgewählte Element. Oben Desktop / Tablet / Handy –
-  auf Tablet oder Handy gesetzte Werte gelten nur dort (Media Query), Desktop bleibt.
-- **Ebenen**: Aufbau der Seite, Reihenfolge per Ziehen. Rückgängig/Wiederholen, Vorschau.
+  auf Tablet oder Handy gesetzte Werte gelten nur dort (Media Query), Desktop bleibt. Komponenten haben hier ihre Einstellungen
+  (YouTube-Adresse, Formular-Art und Dankestext, Feldname/Pflichtfeld, „Video wählen …“).
+- **Seiten**: Register der Website (aus der Navigation) mit ihren Abschnitten und Inhalten; verschieben, kopieren, löschen, Seite wechseln.
 - **Angaben**: Felder aus `kf-daten.json` der Website (z. B. Öffnungszeiten, Telefon in `daten.json`). Ein Klick auf einen
   automatisch gebauten Bereich der Seite öffnet sie. Der Wächter schreibt nur die dort erlaubten Felder.
 - **Neuigkeiten**: Einträge für `<!-- kf:… art="neuigkeiten" -->` (mit RSS-Feed).
+- **Medien** (`studio/medien.js`): eigene Fotos und Videos (Bucket `anhaenge`), Fotos der Website und gemeinfreie Fotos von
+  Wikimedia Commons (nur CC0/Public Domain, Quelle steht im `title`). Vor dem Einfügen zuschneiden (Original, 4:3, 16:9, 1:1, 3:4,
+  Zoom), verkleinern, **Alternativtext Pflicht** (oder „nur Schmuck“). Foto auf der Seite doppelt anklicken öffnet die Bibliothek.
+- **Design** (`studio/design.js`): Farben = CSS-Variablen der Website (`:root{--…}`) plus `--kf-akzent`, `--kf-auf-akzent`, `--kf-linie`
+  der Bausteine; Schriften für Text und Überschriften (nur von der Website mitgebrachte oder Systemschriften, kein Google-Abruf), Grundgröße.
+  Landet als `:root`-/`body`-Regel in `<seite>.kf.css` und wirkt so auf der ganzen Seite.
+- **KI** (`studio/ki.js`): markierten Text umschreiben (kürzer, freundlicher, förmlicher, Rechtschreibung, eigener Wunsch), Sektion aus
+  einer Beschreibung, Farbschema. Nur Vorschläge – „Übernehmen“ ändert die Seite, der Vorschlag wird vorher gesäubert.
+  Läuft über die Edge Function `ki-assistent` (Claude, Tageslimit je Projekt). Große Umbauten weiter als KI-Wunsch.
+- **SEO & Recht** (`studio/seo.js`): Seitentitel, Beschreibung und Teilen-Bild mit Längenanzeige und Google-Vorschau; Prüfung (H1,
+  Alternativtexte, Überschriften-Stufen, nichtssagende Links); Cookie-Prüfung (fremde Server beim Öffnen?); **Vorlagen** für Impressum
+  und Datenschutzerklärung (je nach genutzten Bausteinen und Hosting) – ausdrücklich keine Rechtsberatung, der Kunde prüft den Text.
+  noindex bleibt; das hebt nur die Agentur auf.
+
+Kein Cookie-Banner nötig, solange nichts Fremdes beim Öffnen lädt: YouTube und Karten laden erst nach Klick, Schriften liegen lokal,
+der Bereiniger lässt keine iframes und fremden Skripte zu. Lädt der `<head>` einer Website doch etwas Fremdes, zeigt „SEO & Recht“ es an.
+
+Komponenten auf der fertigen Seite: Der Wächter legt `docs/komponenten.js` als `kf-komponenten.js` neben jede Seite mit `data-komp="…"`
+und bindet es im `<head>` ein (Formular-Adresse und Projekt eingesetzt). Formulare gehen an die Edge Function `formular`
+→ Tabelle `anfragen` → im Portal unter **Anfragen** (gelesen/neu, Antworten per E-Mail). Schutz: Falle-Feld, Mindestzeit,
+5 je Stunde und Absender, 200 je Tag und Projekt, IP nur als Prüfwert. E-Mail-Benachrichtigung bei neuen Anfragen gibt es noch nicht.
 
 Beim **Veröffentlichen** entstehen Zeilen in `inhalte` (`wert.art = "seite"` bzw. `"daten"`). Der Wächter (`waechter/seite.mjs`)
 übernimmt sie **ohne KI** (zählt nicht zur Tagesgrenze), baut, committet und veröffentlicht – auch wenn die Automatik für Wünsche aus ist:
@@ -124,9 +148,20 @@ Beim **Veröffentlichen** entstehen Zeilen in `inhalte` (`wert.art = "seite"` bz
   geändert (z. B. durch einen KI-Wunsch), lehnt der Wächter ab: „bitte neu laden“.
 - Automatisch gebaute Bereiche (`<!-- hof:… -->`, Neuigkeiten), Skripte und Kommentare werden Zeichen für Zeichen wieder eingesetzt
   (`docs/sperren.js`, von Editor und Wächter gemeinsam genutzt). Verschieben und Löschen geht, Verdoppeln nicht.
-- HTML wird nach einer Positivliste bereinigt (kein Skript, keine Ereignisse, keine `javascript:`-Adressen, keine Formulare/iframes).
-  `<head>` und `<body>`-Tag bleiben aus der Datei. Stile des Kunden landen in `<seite>.kf.css` neben der Seite.
-- Neue Fotos werden als WebP im Bilder-Ordner abgelegt; nur Dateien aus dem eigenen Projekt.
+- HTML wird nach einer Positivliste bereinigt (kein Skript, keine Ereignisse, keine `javascript:`-Adressen, keine iframes;
+  Formulare nur ohne `action`, Eingabefelder nur als einfache Felder – kein Passwort, keine Datei).
+  `<head>` und `<body>`-Tag bleiben aus der Datei; nur `<title>`, Beschreibung und `og:*` setzt der Wächter aus den SEO-Angaben.
+  Stile des Kunden landen in `<seite>.kf.css` neben der Seite.
+- Neue Fotos werden als WebP im Bilder-Ordner abgelegt, Videos (MP4/WebM, höchstens 25 MB) unverändert; nur Dateien aus dem eigenen Projekt.
+
+**Einrichten (einmalig, in Supabase):**
+1. Aktuelle `supabase/schema.sql` im SQL Editor ausführen (Tabellen `anfragen`, `ki_nutzung`, Videos im Bucket, Seiten bis 600 KB).
+2. *Edge Functions → Deploy a new function → Via Editor*: `formular` (Inhalt `supabase/functions/formular/index.ts`) mit
+   **„Verify JWT“ AUS** – Besucher der Website sind nicht angemeldet. Und `ki-assistent` (`supabase/functions/ki-assistent/index.ts`)
+   mit „Verify JWT“ an.
+3. *Edge Functions → Secrets*: `ANTHROPIC_API_KEY` = eigener Schlüssel aus console.anthropic.com (nie in Chat oder Git).
+   Freiwillig `KI_TAGESLIMIT` (Standard 40 Anfragen je Projekt und Tag) und `KI_MODELL` (Standard `claude-opus-5-5`).
+   Kosten: je Anfrage meist wenige Cent. Ohne Schlüssel zeigt der Reiter „KI“ eine Meldung, alles andere geht.
 
 Jede Änderung steht im Portal unter „Bearbeitet“ und im Dashboard unter „Veröffentlichungen“ (mit Zurücknehmen).
 Der ältere Marker-Editor (`docs/editor.js`, Bereiche unten) wird nicht mehr geöffnet; seine Marker bleiben gültig.

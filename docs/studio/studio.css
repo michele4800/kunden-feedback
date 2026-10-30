@@ -24,7 +24,7 @@ button,input,select,textarea{font:inherit;color:inherit}
 
 .st-mitte{display:grid;grid-template-columns:340px 1fr;min-height:0}
 .st-seite{background:var(--flaeche);border-right:1px solid var(--linie);display:grid;grid-template-rows:auto 1fr;min-height:0}
-.st-reiter{display:flex;border-bottom:1px solid var(--linie);overflow-x:auto}
+.st-reiter{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--linie)}
 .st-reiter button{flex:1;border:0;background:none;padding:11px 6px;font-size:13.5px;cursor:pointer;font-weight:600;color:var(--leise);border-bottom:3px solid transparent;white-space:nowrap}
 .st-reiter button[aria-selected="true"]{color:var(--text);border-bottom-color:var(--akzent)}
 .st-inhalt{overflow:auto;min-height:0}
@@ -100,3 +100,35 @@ button.baum-reg-name:hover{color:var(--akzent);text-decoration:underline}
 .baum-inhalt{display:block;width:100%;border:0;background:none;text-align:left;padding:4px 6px;border-radius:5px;cursor:pointer;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .baum-inhalt:hover,.baum-inhalt.aktiv{background:#e8f1f5}
 .baum-art{color:var(--leise);font-size:12px;margin-right:4px}
+
+/* Medienbibliothek */
+.md .md-fenster{background:var(--flaeche);border-radius:12px;width:min(820px,96vw);max-height:92vh;display:flex;flex-direction:column;overflow:hidden}
+.md-kopf{display:flex;justify-content:space-between;align-items:center;padding:12px 16px;border-bottom:1px solid var(--linie)}
+.md-kopf h2{margin:0;font-size:18px}
+.md-rumpf{padding:16px;overflow:auto}
+.md-raster{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin-top:12px}
+.md-kachel{position:relative;padding:0;border:2px solid transparent;border-radius:8px;overflow:hidden;background:var(--grund);cursor:pointer;aspect-ratio:1}
+.md-kachel:hover,.md-kachel:focus-visible{border-color:var(--akzent)}
+.md-kachel img,.md-kachel video{width:100%;height:100%;object-fit:cover;display:block}
+.md-kachel span{position:absolute;left:6px;bottom:6px;background:rgba(0,0,0,.7);color:#fff;font-size:12px;padding:2px 6px;border-radius:4px}
+.md-hoch{display:inline-block;cursor:pointer}
+.md-suche input{flex:1;border:1px solid var(--linie);border-radius:6px;padding:7px 10px;font:inherit}
+.md-buehne{display:grid;place-items:center;background:#2b2b28;border-radius:8px;padding:10px;margin-bottom:10px}
+.md-buehne canvas{max-width:100%;cursor:grab;touch-action:none}
+.md-formate{margin-bottom:10px;flex-wrap:wrap}
+.md-formate [aria-pressed="true"],.btn[aria-pressed="true"]{background:var(--akzent);color:#fff;border-color:var(--akzent)}
+.md-schmuck{display:flex;gap:8px;align-items:center;font-size:14px;margin:0 0 10px}
+.md-reiter{margin:0 16px}
+/* Design, SEO, KI */
+.ds-farbe .zeile{gap:8px}
+.ds-farbe input[type=color]{width:44px;height:34px;padding:0;border:1px solid var(--linie);border-radius:6px}
+.ds-farbe input[type=text]{flex:1;min-width:0}
+.feld select{border:1px solid var(--linie);border-radius:6px;padding:7px 8px;font:inherit}
+.seo-vorschau{display:grid;gap:2px;border:1px solid var(--linie);border-radius:8px;padding:12px;margin:0 0 12px;font-family:Arial,sans-serif}
+.seo-adresse{font-size:12px;color:#4d5156}.seo-titel{font-size:18px;color:#1a0dab;line-height:1.3}.seo-text{font-size:13px;color:#4d5156;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.seo-pruefung{padding-left:18px;margin:0 0 12px;font-size:14px}.seo-pruefung li{margin:0 0 6px}
+.ok{color:#2f6b3a}
+.seo-recht{border:1px solid var(--linie);border-radius:8px;padding:8px 12px;margin:0 0 10px}.seo-recht summary{cursor:pointer;font-weight:600;padding:4px 0}
+.ki-zitat{border-left:3px solid var(--linie);padding-left:10px;color:var(--leise);font-size:14px}
+.ki-farben{display:flex;gap:6px;margin-bottom:8px}.ki-farben span{width:36px;height:36px;border-radius:6px;border:1px solid var(--linie)}
+.ki-sektion{max-height:260px;overflow:auto;border:1px solid var(--linie);border-radius:6px;padding:8px;font-size:13px}

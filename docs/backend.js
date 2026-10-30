@@ -50,6 +50,28 @@
       // Editor: Änderungen markierter Bereiche (Verlauf, neueste zuerst)
       async inhalte(p) { return ok(await sb.from("inhalte").select("*").eq("projekt_id", p).order("erstellt_am", { ascending: false }).limit(300)); },
       async inhaltAnlegen(z) { return ok(await sb.from("inhalte").insert(z).select().single()); },
+      // Medienbibliothek: Fotos und Videos des Projekts (neueste zuerst) mit Adressen, die eine Stunde gelten
+      async medien(p) {
+        const liste = ok(await sb.storage.from("anhaenge").list(p, { limit: 300, sortBy: { column: "created_at", order: "desc" } }))
+          .filter(d => /^(image|video)\//.test(d.metadata?.mimetype || ""));
+        if (!liste.length) return [];
+        const urls = ok(await sb.storage.from("anhaenge").createSignedUrls(liste.map(d => `${p}/${d.name}`), 3600));
+        return liste.map((d, i) => ({ pfad: `${p}/${d.name}`, url: urls[i].signedUrl, name: d.name.replace(/^[0-9a-f-]{36}-/, ""), typ: d.metadata.mimetype }));
+      },
+      // Anfragen aus Formularen der Website (Edge Function „formular“)
+      async anfragen(p) { return ok(await sb.from("anfragen").select("*").eq("projekt_id", p).order("erstellt_am", { ascending: false }).limit(300)); },
+      async anfrageGelesen(id, gelesen = true) { ok(await sb.from("anfragen").update({ gelesen }).eq("id", id)); },
+      // KI-Assistent im Editor (Edge Function „ki-assistent“): aufgabe = text | sektion | farben
+      async ki(projekt_id, aufgabe, daten) {
+        const { data, error } = await sb.functions.invoke("ki-assistent", { body: { projekt_id, aufgabe, ...daten } });
+        if (error) {
+          let text = error.message;
+          try { text = (await error.context.json()).fehler || text; } catch (e) {}
+          if (/Failed to send|404/i.test(text)) text = "Der KI-Assistent ist in Supabase noch nicht eingerichtet (siehe README).";
+          throw new Error(übersetzen(text));
+        }
+        return data;
+      },
       beobachten(p, fn) {
         const kanal = sb.channel("kf-" + p);
         for (const t of ["wuensche", "kommentare", "antworten", "automatik"])
@@ -208,6 +230,20 @@
         // Demo: die „Automatik“ übernimmt nach drei Sekunden
         setTimeout(() => { const e = daten(), x = (e.inhalte || []).find(q => q.id === neuer.id); if (x) { x.status = "live"; x.geaendert_am = jetzt(); schreiben(e); } }, 3000);
         return neuer;
+      },
+      async medien(p) {
+        let d = {}; try { d = JSON.parse(localStorage.getItem("kf-demo-dateien") || "{}"); } catch (e) {}
+        return Object.entries(d).filter(([pfad, url]) => pfad.startsWith(p + "/") && /^data:(image|video)\//.test(url)).reverse()
+          .map(([pfad, url]) => ({ pfad, url, name: pfad.split("/").pop().replace(/^[0-9a-f-]{36}-/, ""), typ: url.slice(5, url.indexOf(";")) }));
+      },
+      async anfragen(p) { return (daten().anfragen || []).filter(a => a.projekt_id === p); },
+      async anfrageGelesen(id, gelesen = true) { const d = daten(), a = (d.anfragen || []).find(x => x.id === id); if (a) { a.gelesen = gelesen; schreiben(d); } },
+      // Demo: feste Antworten, keine echte KI
+      async ki(p, aufgabe, x) {
+        await new Promise(ok => setTimeout(ok, 600));
+        if (aufgabe === "text") return { text: `${String(x.text || "").trim()} (Demo: so würde der umgeschriebene Text erscheinen.)` };
+        if (aufgabe === "farben") return { farben: { "--kf-akzent": "#2f6b3a", "--kf-auf-akzent": "#ffffff", "--kf-linie": "rgba(47,107,58,.25)" }, erklaerung: "Demo: ein ruhiges Grün." };
+        return { html: `<section style="padding:72px 20px"><div style="max-width:1100px;margin:0 auto"><h2>${KF.esc(String(x.text || "Neue Sektion").slice(0, 80))}</h2><p>Demo: Hier stünde der Text, den die KI vorschlägt.</p></div></section>` };
       },
       async automatikSetzen(p, modus) { const d = daten(); const a = d.automatik.find(x => x.projekt_id === p); if (a) a.modus = modus; else d.automatik.push({ projekt_id: p, modus }); schreiben(d); },
       beobachten(p, fn) { const f = () => fn("alle"); zuhörer.add(f); return () => zuhörer.delete(f); },

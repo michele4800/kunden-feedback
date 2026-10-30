@@ -409,6 +409,53 @@ drop policy if exists automatik_aendern on public.automatik;
 create policy automatik_aendern on public.automatik for update to authenticated
   using (public.ist_agentur(projekt_id)) with check (public.ist_agentur(projekt_id));
 
+-- ---------- Anfragen aus Formularen der Websites (Edge Function „formular“, seit Version 6) ----------
+-- Anlegen nur über die Edge Function (service_role); Kunden lesen und markieren als gelesen, die Agentur darf löschen.
+create table if not exists public.anfragen (
+  id          uuid primary key default gen_random_uuid(),
+  projekt_id  uuid not null references public.projekte(id) on delete cascade,
+  formular    text not null default 'kontakt' check (formular in ('kontakt', 'anfrage', 'feedback')),
+  felder      jsonb not null check (jsonb_typeof(felder) = 'object' and length(felder::text) <= 60000),
+  seite_url   text not null default '' check (length(seite_url) <= 500),
+  ip_hash     text not null default '' check (length(ip_hash) <= 64),   -- nur für die Begrenzung, keine IP-Adresse
+  gelesen     boolean not null default false,
+  erstellt_am timestamptz not null default now()
+);
+create index if not exists anfragen_projekt on public.anfragen(projekt_id, erstellt_am desc);
+create index if not exists anfragen_absender on public.anfragen(ip_hash, erstellt_am desc);
+alter table public.anfragen enable row level security;
+drop policy if exists anfragen_lesen on public.anfragen;
+create policy anfragen_lesen on public.anfragen for select to authenticated using (public.ist_mitglied(projekt_id));
+drop policy if exists anfragen_gelesen on public.anfragen;
+create policy anfragen_gelesen on public.anfragen for update to authenticated using (public.ist_mitglied(projekt_id)) with check (public.ist_mitglied(projekt_id));
+revoke update on public.anfragen from authenticated;
+grant update (gelesen) on public.anfragen to authenticated;
+drop policy if exists anfragen_loeschen on public.anfragen;
+create policy anfragen_loeschen on public.anfragen for delete to authenticated using (public.ist_agentur(projekt_id));
+
+-- ---------- KI-Assistent im Editor: Tageszähler je Projekt (Edge Function „ki-assistent“) ----------
+create table if not exists public.ki_nutzung (
+  projekt_id uuid not null references public.projekte(id) on delete cascade,
+  tag        date not null default current_date,
+  anzahl     integer not null default 0,
+  primary key (projekt_id, tag)
+);
+alter table public.ki_nutzung enable row level security;
+drop policy if exists ki_nutzung_lesen on public.ki_nutzung;
+create policy ki_nutzung_lesen on public.ki_nutzung for select to authenticated using (public.ist_mitglied(projekt_id));
+-- zählt eine Anfrage, wenn das Limit nicht erreicht ist; Ergebnis: verbleibende Anfragen oder -1
+create or replace function public.ki_zaehlen(p uuid, grenze integer) returns integer
+  language plpgsql security definer set search_path = public as
+$$ declare n integer;
+begin
+  insert into public.ki_nutzung (projekt_id, tag, anzahl) values (p, current_date, 1)
+  on conflict (projekt_id, tag) do update set anzahl = ki_nutzung.anzahl + 1 where ki_nutzung.anzahl < grenze
+  returning anzahl into n;
+  return case when n is null then -1 else grenze - n end;
+end $$;
+revoke all on function public.ki_zaehlen(uuid, integer) from public, anon, authenticated;
+grant execute on function public.ki_zaehlen(uuid, integer) to service_role;
+
 -- ---------- Fotos und Anhänge (Supabase Storage) ----------
 -- Pfad: <projekt_id>/<zufall>-<dateiname>. Lesen und Hochladen nur für Projektmitglieder, Löschen nur für die Agentur.
 create or replace function public.projekt_aus_pfad(pfad text) returns uuid
@@ -419,7 +466,8 @@ do $$
 begin
   if exists (select 1 from information_schema.tables where table_schema = 'storage' and table_name = 'buckets') then
     insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-    values ('anhaenge', 'anhaenge', false, 6291456, array['image/jpeg', 'image/png', 'image/webp', 'application/pdf'])
+    -- 26 MB für Videos (Video-Hintergrund im Editor); Fotos verkleinert der Browser vorher
+    values ('anhaenge', 'anhaenge', false, 26214400, array['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'video/mp4', 'video/webm'])
     on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
     drop policy if exists anhaenge_lesen on storage.objects;
@@ -520,6 +568,7 @@ begin
     begin alter publication supabase_realtime add table public.projekte;   exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.veroeffentlichungen; exception when duplicate_object then null; end;
     begin alter publication supabase_realtime add table public.inhalte;    exception when duplicate_object then null; end;
+    begin alter publication supabase_realtime add table public.anfragen;   exception when duplicate_object then null; end;
   end if;
 end $$;
 

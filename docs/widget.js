@@ -14,7 +14,7 @@
   if (!SLUG) { console.warn("Kunden-Feedback: data-projekt fehlt"); return; }
 
   // Version an alle nachgeladenen Dateien hängen, damit der Browser nie alte und neue Teile mischt (bei jeder Änderung erhöhen)
-  const V = "20261030e";
+  const V = "20261031a";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
 
   async function start() {
@@ -230,7 +230,7 @@
           const d = n => `${BASIS}${n}?v=${V}`;
           rahmen.className = "kf-studio"; rahmen.title = "Editor";
           rahmen.srcdoc = `<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Editor</title><link rel="stylesheet" href="${d("vendor/grapes.min.css")}"><link rel="stylesheet" href="${d("studio/studio.css")}"></head>
-<body><p style="padding:24px;font:16px system-ui">Editor wird geladen …</p><script>window.KF_STUDIO_BASIS=${JSON.stringify(BASIS)}<\/script>${["vendor/grapes.min.js", "vendor/grapes.de.js", "sperren.js", "studio/bloecke.js", "studio/studio.js"].map(n => `<script src="${d(n)}"><\/script>`).join("")}</body></html>`;
+<body><p style="padding:24px;font:16px system-ui">Editor wird geladen …</p><script>window.KF_STUDIO_BASIS=${JSON.stringify(BASIS)}<\/script>${["vendor/grapes.min.js", "vendor/grapes.de.js", "sperren.js", "studio/bloecke.js", "studio/medien.js", "studio/design.js", "studio/ki.js", "studio/seo.js", "studio/studio.js"].map(n => `<script src="${d(n)}"><\/script>`).join("")}</body></html>`;
           document.documentElement.style.overflow = "hidden";
           document.body.appendChild(rahmen);
           knopf.hidden = bearbeitenKnopf.hidden = true;

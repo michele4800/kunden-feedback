@@ -109,12 +109,31 @@
         <div class="meta">${esc(namen[z.autor] || "")} · ${KF.zeit(z.erstellt_am)}${z.meldung ? " · " + esc(z.meldung) : ""}</div></li>`; }).join("")}</ul>`;
   }
 
+  // Anfragen aus den Formularen der Website (Editor-Baustein „Kontaktformular“ usw.)
+  const FORMULARE = { kontakt: "Kontakt", anfrage: "Anfrage / Buchung", feedback: "Feedback" };
+  function anfragenAnsicht(anfragen) {
+    return `<p class="hinweis">Was Besucher über die Formulare der Website geschickt haben – neueste zuerst. Bitte direkt per E-Mail oder Telefon antworten.</p>
+      <ul class="liste">${anfragen.map(a => { const f = a.felder || {}, mail = Object.entries(f).find(([k]) => /mail/i.test(k))?.[1] || "";
+        return `<li class="w${a.gelesen ? "" : " neu"}">
+        <div class="w-kopf"><strong>${esc(FORMULARE[a.formular] || a.formular)}${f.name ? " · " + esc(f.name) : ""}</strong><span class="status${a.gelesen ? "" : " offen"}">${a.gelesen ? "Gelesen" : "Neu"}</span></div>
+        <dl class="anfrage">${Object.entries(f).map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl>
+        <div class="meta">${KF.zeit(a.erstellt_am)}${a.seite_url ? " · " + esc(new URL(a.seite_url).pathname) : ""}</div>
+        <div class="zeile">${mail ? `<a class="btn klein" href="mailto:${esc(mail)}?subject=${encodeURIComponent("Eure Anfrage")}">Antworten</a>` : ""}
+          <button type="button" class="btn klein" data-anfrage="${esc(a.id)}" data-gelesen="${a.gelesen ? "" : "1"}">${a.gelesen ? "Als neu markieren" : "Als gelesen markieren"}</button></div></li>`; }).join("")}</ul>`;
+  }
+  inhalt.addEventListener("click", async e => {
+    const b = e.target.closest("[data-anfrage]"); if (!b) return;
+    b.disabled = true;
+    try { await be.anfrageGelesen(b.dataset.anfrage, !!b.dataset.gelesen); await zeichnen(); } catch (err) { alert(err.message); b.disabled = false; }
+  });
+
   // ---------- Hauptansicht ----------
   async function zeichnen() {
     if (!projekt || !(await be.sitzung())) return anmeldung();
     const [mitglieder, wuensche, kommentare, fragen, antworten, auto, inhalte] = await Promise.all([
       be.mitglieder(projekt.id), be.wuensche(projekt.id), be.kommentare(projekt.id), be.fragen(projekt.id), be.antworten(projekt.id), be.automatik(projekt.id),
       be.inhalte ? be.inhalte(projekt.id).catch(() => []) : []]);
+    const anfragen = be.anfragen ? await be.anfragen(projekt.id).catch(() => []) : [];  // vor dem Schema-Update gibt es die Tabelle noch nicht
     namen = Object.fromEntries(mitglieder.map(m => [m.user_id, m.anzeigename || (m.rolle === "agentur" ? "Agentur" : "Kunde")]));
     rolle = (mitglieder.find(m => m.user_id === ich.id) || {}).rolle;
     titel.innerHTML = `${esc(projekt.name)}<small>Wünsche &amp; Änderungen</small>`;
@@ -122,6 +141,7 @@
     const w8 = KF.waechterText(auto);
     const offen = wuensche.filter(w => AKTIV.includes(w.status)).length;
     const reiterListe = [["wuensche", `Wünsche (${offen} offen)`], ["fragen", `Fragen (${antworten.length}/${fragen.length})`], ["neu", "Neuer Wunsch"]];
+    if (anfragen.length) reiterListe.push(["anfragen", `Anfragen${anfragen.some(a => !a.gelesen) ? ` (${anfragen.filter(a => !a.gelesen).length} neu)` : ""}`]);
     if (inhalte.length) reiterListe.push(["inhalte", "Bearbeitet"]);
     if (rolle === "agentur") reiterListe.push(["export", "Export für Claude"], ["einstellungen", "Automatik"]);
     const scroll = scrollY;
@@ -129,7 +149,7 @@
       <p class="waechter"><span class="punkt${w8.aktiv ? " an" : ""}"></span>${esc(w8.text)}</p>
       <div class="reiter" role="tablist">${reiterListe.map(([id, t]) => `<button role="tab" aria-selected="${id === reiter}" data-reiter="${id}">${t}</button>`).join("")}</div>
       <section role="tabpanel">${{ wuensche: () => wunschListe(wuensche, kommentare), fragen: () => fragenAnsicht(fragen, antworten), neu: neuAnsicht,
-        export: () => exportAnsicht(wuensche, kommentare, fragen, antworten), einstellungen: () => einstellungen(auto), inhalte: () => inhalteAnsicht(inhalte) }[reiter]()}</section>`;
+        export: () => exportAnsicht(wuensche, kommentare, fragen, antworten), einstellungen: () => einstellungen(auto), inhalte: () => inhalteAnsicht(inhalte), anfragen: () => anfragenAnsicht(anfragen) }[reiter]()}</section>`;
     scrollTo(0, scroll);
     for (const a of inhalt.querySelectorAll("[data-anhang]")) { try { const u = await be.dateiUrl(a.dataset.anhang); a.href = u; a.querySelector("img").src = u; } catch (e) {} }
   }

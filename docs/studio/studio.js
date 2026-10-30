@@ -8,6 +8,8 @@
   const dateiname = (new URL(SEITE).pathname.split("/").pop() || "index.html");
   const CSS_DATEI = dateiname.replace(/\.html?$/i, "") + ".kf.css";
   const ENTWURF = `kf-studio:${projekt.id}:${SEITE}`;
+  // Weitere Reiter (Design, Medien, KI, SEO & Recht) kommen aus eigenen Dateien: { id, titel, aufbauen(ctx, feld), nachLaden?() }
+  const TEILE = window.KF_STUDIO_TEILE || [];
 
   // ---------- Seite zerlegen ----------
   const { kopf, body } = SP.zerlegen(K.text);
@@ -67,6 +69,7 @@
           <button type="button" role="tab" data-reiter="seiten" aria-selected="false">Seiten</button>
           <button type="button" role="tab" data-reiter="daten" aria-selected="false" hidden>Angaben</button>
           <button type="button" role="tab" data-reiter="neuigkeiten" aria-selected="false" hidden>Neuigkeiten</button>
+          ${TEILE.filter(t => t.titel).map(t => `<button type="button" role="tab" data-reiter="${t.id}" aria-selected="false">${esc(t.titel)}</button>`).join("")}
         </div>
         <div class="st-inhalt">
           <section data-feld="hinzufuegen"><p class="hinweis">Sektion oder Element auf die Seite ziehen. Auf der Seite: Element anklicken zum Auswählen, Text doppelt anklicken zum Schreiben, Foto doppelt anklicken zum Austauschen.</p><div id="kf-bloecke"></div></section>
@@ -74,6 +77,7 @@
           <section data-feld="seiten" hidden><div id="kf-baum"></div></section>
           <section data-feld="daten" hidden></section>
           <section data-feld="neuigkeiten" hidden></section>
+          ${TEILE.filter(t => t.titel).map(t => `<section data-feld="${t.id}" hidden></section>`).join("")}
         </div>
       </aside>
       <main class="st-leinwand"><div id="kf-leinwand"></div></main>
@@ -106,6 +110,7 @@
       { name: "Hintergrund", open: false, properties: ["background-color", "background"] },
       { name: "Rahmen und Ecken", open: false, properties: ["border", "border-radius", "box-shadow", "opacity"] }] },
     assetManager: { upload: false, uploadFile: hochladen, assets: [] },
+    plugins: window.KF_STUDIO_PLUGINS || [],
   });
   editor.getWrapper().addAttributes(bodyKlasse ? { class: bodyKlasse } : {});
 
@@ -122,7 +127,7 @@
   editor.on("component:clone", k => k.find("kf-sperre").forEach(x => x.remove()));
 
   // ---------- Bilder ----------
-  const bildPfade = new Map();  // signierte Adresse → Pfad im Speicher
+  const bildPfade = window.KF_STUDIO_PFADE = new Map();  // signierte Adresse → Pfad im Speicher (auch Videos)
   async function hochladen(ev) {
     const dateien = [...((ev.dataTransfer || ev.target || {}).files || [])];
     for (const f of dateien) {
@@ -165,7 +170,8 @@
   editor.on("undo redo", leisteAktualisieren);
   editor.on("component:selected", c => {
     const b = c.get("kfBereich");
-    if (!b) return aktiverReiter === "seiten" ? undefined : reiter("gestalten");  // in „Seiten“ bleiben, wenn man dort auswählt
+    // in „Seiten“, „KI“, „SEO & Recht“ usw. bleiben, wenn man von dort aus etwas auswählt oder einfügt
+    if (!b) return aktiverReiter === "seiten" || TEILE.some(t => t.id === aktiverReiter) ? undefined : reiter("gestalten");
     if (b.art === "neuigkeiten") { neuigkeitenZeigen(b.schluessel); reiter("neuigkeiten"); }
     else { reiter("daten"); }
   });
@@ -204,7 +210,7 @@
     clearTimeout(merkenUhr);
     try {
       localStorage.setItem(ENTWURF, JSON.stringify({ basis, zeit: Date.now(), projekt: seiteGeaendert ? editor.getProjectData() : null,
-        daten: datenGeaendert ? datenWerte() : null,
+        daten: datenGeaendert ? datenWerte() : null, zusatz: ctx.zusatz,
         neuigkeiten: Object.fromEntries(Object.entries(nachrichten).filter(([, n]) => n.geaendert).map(([k, n]) => [k, n.liste])) }));
       return true;
     } catch (e) { return false; }
@@ -449,10 +455,13 @@
         return meldung("Noch Platzhalter-Fotos", `${platzhalter.length === 1 ? "Ein Platzhalter-Foto ist" : platzhalter.length + " Platzhalter-Fotos sind"} noch auf der Seite. Bitte doppelt anklicken und ein eigenes Foto wählen – oder löschen.`, [["OK", () => meldung("")]]);
       }
       for (const c of editor.getWrapper().find("img")) { const p = bildPfade.get(c.get("src")); if (p) c.addAttributes({ "data-kf-bild": p }); }
+      for (const c of editor.getWrapper().find("video")) { const p = bildPfade.get(c.getAttributes().src); if (p) c.addAttributes({ "data-kf-datei": p }); }
+      const ohneVideo = editor.getWrapper().find("video[data-hintergrund]").filter(c => !c.getAttributes().src);
+      if (ohneVideo.length) { editor.select(ohneVideo[0]); return meldung("Video fehlt", "Beim Video-Hintergrund ist noch kein Video gewählt. Bitte im Reiter „Gestalten“ auf „Video wählen …“ klicken – oder den Abschnitt löschen.", [["OK", () => meldung("")]]); }
       const h = editor.getHtml().replace(/^\s*<body\b[^>]*>/i, "").replace(/<\/body>\s*$/i, "");
       const css = editor.getCss({ avoidProtected: true }) || "";
       if (h.length + css.length > 480000) return meldung("Seite zu groß", "Die Seite ist zu umfangreich zum Speichern. Bitte große Bereiche entfernen.", [["OK", () => meldung("")]]);
-      zeilen.push({ schluessel: "seite-" + kurz(new URL(SEITE).pathname.replace(/^\//, "") || "index"), wert: { art: "seite", html: h, css, basis } });
+      zeilen.push({ schluessel: "seite-" + kurz(new URL(SEITE).pathname.replace(/^\//, "") || "index"), wert: { art: "seite", html: h, css, basis, ...(ctx.zusatz.seo ? { seo: ctx.zusatz.seo } : {}) } });
     }
     if (datenGeaendert && schema) zeilen.push({ schluessel: "daten", wert: { art: "daten", werte: datenWerte(), basis: datenBasis } });
     for (const [schluessel, n] of Object.entries(nachrichten)) if (n.geaendert) zeilen.push({ schluessel, wert: { eintraege: n.liste } });
@@ -485,6 +494,12 @@
     warten();
   }
 
+  // ---------- Weitere Reiter ----------
+  const ctx = { editor, K, be, projekt, KF, esc, $, SEITE, kopf, quelle, bildPfade, reiter, status, meldung, zusatz: {},
+    // Änderung außerhalb der Leinwand (z. B. SEO), die mit der Seite veröffentlicht wird
+    seiteAendern() { seiteGeaendert = true; ungespeichert = true; leisteAktualisieren(); entwurfMerken(); } };
+  for (const t of TEILE) try { t.aufbauen(ctx, $(`[data-feld="${t.id}"]`) || document.createElement("section")); } catch (e) { console.error(t.id, e); }
+
   // ---------- Start ----------
   editor.on("load", async () => {
     einrichten();
@@ -499,11 +514,13 @@
       if (e.projekt) { editor.loadProjectData(e.projekt); einrichten(); seiteGeaendert = true; }
       if (e.daten) for (const [pfad, w] of Object.entries(e.daten)) $('[data-feld="daten"]').querySelectorAll(`input[data-pfad="${CSS.escape(pfad)}"]`).forEach(i => { i.value = i.dataset.tag ? (w[i.dataset.tag] || "") : w; datenGeaendert = true; });
       for (const [k, liste] of Object.entries(e.neuigkeiten || {})) if (nachrichten[k]) { nachrichten[k].liste = liste; nachrichten[k].geaendert = true; }
+      if (e.zusatz) Object.assign(ctx.zusatz, e.zusatz);
       neuigkeitenZeigen();
       gespeichertUm = e.zeit;
     } else if (e) { try { localStorage.removeItem(ENTWURF); } catch (err) {} }
     um.clear();
     setTimeout(() => { bereit = true; ungespeichert = false; if (weiter) status(`Gespeicherter Stand vom ${uhr(e.zeit)} geladen · noch nicht veröffentlicht`); }, 400);  // Nachzügler-„update“ vom Laden nicht zählen
+    for (const t of TEILE) try { t.nachLaden && t.nachLaden(); } catch (err) { console.error(t.id, err); }
     leisteAktualisieren(); baum();
     if (weiter) status(`Gespeicherter Stand vom ${uhr(e.zeit)} geladen · noch nicht veröffentlicht`);
   });

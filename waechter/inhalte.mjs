@@ -162,7 +162,8 @@ function imgTag(altTag, bild, alt, datei, ordner) {
 // ---------- Anwenden ----------
 // aenderungen: [{ schluessel, wert }] (je Schlüssel die neueste). optionen.bildHolen(pfad) → Buffer (aus dem Speicher von Supabase).
 // Ergebnis je Änderung: { schluessel, ok, meldung }. Schreibt nur Dateien, die sich wirklich ändern.
-export async function inhalteAnwenden(p, aenderungen, { bildHolen, basisUrl = "", basisAdressen = [], projektId = "", titel = "", heute } = {}) {
+// formularZiel/slug: Adresse der Edge Function „formular“ und Projekt – werden in kf-komponenten.js eingesetzt
+export async function inhalteAnwenden(p, aenderungen, { bildHolen, basisUrl = "", basisAdressen = [], projektId = "", titel = "", heute, formularZiel = "", slug = "" } = {}) {
   const dateien = htmlDateien(p.ordner);
   const verz = bereiche(p.ordner, dateien);
   const texte = new Map(dateien.map(d => [d, readFileSync(path.join(p.ordner, d), "utf8")]));
@@ -186,16 +187,35 @@ export async function inhalteAnwenden(p, aenderungen, { bildHolen, basisUrl = ""
         } else {
           const datei = s.dateiZurAdresse(seite_url, basisAdressen.length ? basisAdressen : [basisUrl], dateien);
           const cssDatei = path.posix.basename(datei).replace(/\.html?$/, "") + ".kf.css";
-          const erg = await s.seiteUebernehmen(readFileSync(path.join(p.ordner, datei), "utf8"), wert, { cssDatei,
+          const eigen = pfad => { if (!bildHolen || !projektId || !String(pfad).startsWith(projektId + "/")) throw new Error("Datei gehört nicht zu diesem Projekt"); };
+          const erg = await s.seiteUebernehmen(readFileSync(path.join(p.ordner, datei), "utf8"), wert, { cssDatei, seiteUrl: seite_url,
             bildAblegen: async pfad => {
-              if (!bildHolen || !projektId || !String(pfad).startsWith(projektId + "/")) throw new Error("Bild gehört nicht zu diesem Projekt");
+              eigen(pfad);
               const b = await bildAblegen(p, "seite", await bildHolen(pfad));
               const src = relativ(datei, b.gross, p.ordner);
               return { src, srcset: b.klein ? `${relativ(datei, b.klein, p.ordner)} ${b.kleinBreite}w, ${src} ${b.breite}w` : "", breite: b.breite, hoehe: b.hoehe };
+            },
+            // Videos (Hintergrund) unverändert ablegen, nur MP4/WebM
+            dateiAblegen: async pfad => {
+              eigen(pfad);
+              const endung = (/\.(mp4|webm)$/i.exec(pfad) || [])[1];
+              if (!endung) throw new Error("Nur Videos im Format MP4 oder WebM");
+              const puffer = await bildHolen(pfad);
+              if (puffer.length > 26214400) throw new Error("Video zu groß (höchstens 25 MB)");
+              const ordner = path.join(p.ordner, (p.bilder || {}).ordner || "bilder");
+              mkdirSync(ordner, { recursive: true });
+              const ziel = path.join(ordner, `kf-video-${createHash("sha1").update(puffer).digest("hex").slice(0, 8)}.${endung.toLowerCase()}`);
+              writeFileSync(ziel, puffer);
+              return relativ(datei, ziel, p.ordner);
             } });
           texte.set(datei, erg.text);
           const cssPfad = path.join(p.ordner, path.posix.dirname(datei), cssDatei);
           if (erg.css || existsSync(cssPfad)) writeFileSync(cssPfad, erg.css + "\n");
+          if (erg.komponenten) {
+            const js = readFileSync(new URL("../docs/komponenten.js", import.meta.url), "utf8")
+              .replace('"__KF_FORMULAR__"', JSON.stringify(formularZiel)).replace('"__KF_PROJEKT__"', JSON.stringify(slug));
+            writeFileSync(path.join(p.ordner, path.posix.dirname(datei), s.KOMPONENTEN), js);
+          }
         }
         ergebnisse.push({ schluessel, ok: true, meldung: "" });
         continue;

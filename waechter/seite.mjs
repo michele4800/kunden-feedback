@@ -22,16 +22,22 @@ const TAGS = new Set([
   "section", "header", "footer", "main", "nav", "article", "aside", "div", "span", "p", "h1", "h2", "h3", "h4", "h5", "h6",
   "ul", "ol", "li", "dl", "dt", "dd", "a", "img", "picture", "source", "figure", "figcaption", "blockquote", "q", "cite",
   "b", "strong", "i", "em", "small", "mark", "s", "u", "sub", "sup", "abbr", "time", "address", "br", "hr", "wbr",
-  "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "colgroup", "col", "details", "summary", "button", ...SVG]);
-const LEER = new Set(["img", "source", "br", "hr", "wbr", "col"]);
-const WEG_MIT_INHALT = /^(script|style|iframe|object|embed|template|noscript|math|form|input|textarea|select|frame|frameset|applet|base|link|meta)$/;
+  "table", "caption", "thead", "tbody", "tfoot", "tr", "th", "td", "colgroup", "col", "details", "summary", "button", ...SVG,
+  // Formulare (schickt kf-komponenten.js an die Edge Function „formular“ – ohne action, ohne eigenes Ziel) und Video-Hintergrund
+  "form", "label", "input", "textarea", "select", "option", "fieldset", "legend", "video"]);
+const LEER = new Set(["img", "source", "br", "hr", "wbr", "col", "input"]);
+const WEG_MIT_INHALT = /^(script|style|iframe|object|embed|template|noscript|math|frame|frameset|applet|base|link|meta)$/;
 const ATTR = new Set(["class", "id", "style", "title", "lang", "dir", "role", "hidden", "tabindex", "width", "height", "alt", "src", "srcset",
   "sizes", "href", "target", "rel", "loading", "decoding", "fetchpriority", "datetime", "colspan", "rowspan", "scope", "headers", "open",
   "type", "span", "start", "reversed", "cite", "media",
+  "name", "placeholder", "required", "maxlength", "minlength", "rows", "cols", "for", "autocomplete", "value", "checked", "selected", "multiple",
+  "min", "max", "step", "inputmode", "novalidate", "autoplay", "muted", "loop", "playsinline", "poster", "preload", "controls",
   "viewbox", "d", "fill", "stroke", "stroke-width", "stroke-linecap", "stroke-linejoin", "stroke-dasharray", "cx", "cy", "r", "rx", "ry",
   "x", "y", "x1", "y1", "x2", "y2", "points", "transform", "opacity", "fill-rule", "clip-rule", "xmlns", "focusable", "preserveaspectratio",
   "offset", "stop-color", "gradientunits"]);
-const ADRESSE = new Set(["href", "src", "cite"]);
+const ADRESSE = new Set(["href", "src", "cite", "poster"]);
+// Eingabefelder nur als einfache Felder – kein Passwort, keine Datei, nichts Verstecktes
+const EINGABE = /^(text|email|tel|url|date|time|number|checkbox|radio|search)$/;
 
 const entitaeten = s => s.replace(/&(#x[0-9a-f]+|#\d+|amp|quot|apos|lt|gt|nbsp);/gi, (g, e) =>
   e[0] === "#" ? String.fromCodePoint(e[1].toLowerCase() === "x" ? parseInt(e.slice(2), 16) : +e.slice(1))
@@ -64,11 +70,12 @@ export function seiteBereinigen(html, marke) {
       if (i >= 0) while (stapel.length > i) raus.push(`</${stapel.pop()}>`);
       continue;
     }
-    let bild = null, ziel = "";
+    let bild = null, datei = null, ziel = "";
     const attr = [];
     for (const [roh, wert] of attributeLesen(m[3])) {
       const n = roh.toLowerCase();
       if (n === "data-kf-bild" && tag === "img") { bild = wert; continue; }
+      if (n === "data-kf-datei" && (tag === "video" || tag === "source")) { datei = wert; continue; }
       const ok = ATTR.has(n) || /^aria-[a-z-]+$/.test(n) || (/^data-[a-z0-9-]+$/.test(n) && !n.startsWith("data-kf-"));
       if (!ok) continue;
       let w = wert;
@@ -77,12 +84,19 @@ export function seiteBereinigen(html, marke) {
       if (n === "style" && !stilSicher(w)) continue;
       if (n === "target") { if (w !== "_blank") continue; ziel = w; }
       if (n === "rel") continue;  // wird unten gesetzt
+      if (n === "type" && tag === "input" && !EINGABE.test(w.toLowerCase())) w = "text";
+      if (n === "type" && tag === "button" && !/^(button|submit|reset)$/i.test(w)) w = "button";
       attr.push([SVG.includes(tag) || n === "viewbox" ? roh : n, w]);
     }
     if (tag === "a" && ziel) attr.push(["rel", "noopener"]);
+    if (datei) {  // Video aus der Medienbibliothek: Wächter legt die Datei ab, Platzhalter ersetzt src
+      const nr = bilder.push({ pfad: datei, attr, datei: true, tag }) - 1;
+      bilder[nr].marke = `${marke}b${nr}x`;
+      attr.splice(0, attr.length, ...attr.filter(([n]) => n !== "src"), ["src", bilder[nr].marke]);
+    }
     const attrText = attr.map(([n, w]) => ` ${n}="${esc(w)}"`).join("");
     if (bild) {
-      const nr = bilder.push({ pfad: bild, attr }) - 1;
+      const nr = bilder.push({ pfad: bild, attr, datei: false }) - 1;
       bilder[nr].marke = `${marke}b${nr}x`;
       raus.push(bilder[nr].marke);
       continue;
@@ -159,7 +173,10 @@ export function datenUebernehmen(altText, schema, wert) {
 
 // alt: bisheriger Dateitext. wert: { html, css, basis }. bildAblegen(pfad) → Promise<{ src, srcset?, breite, hoehe }> (Pfade relativ zur Seite).
 // Ergebnis: { text, css } – css ist der Inhalt für <seite>.kf.css (leer = keine eigenen Stile)
-export async function seiteUebernehmen(alt, wert, { cssDatei, bildAblegen }) {
+// dateiAblegen(pfad) → Promise<src> (Videos, unverändert abgelegt). Seiten mit data-komp="…" bekommen kf-komponenten.js eingebunden
+// (Ergebnis komponenten: true – die Datei schreibt der Aufrufer). wert.seo = { titel, beschreibung, bild } ändert <title> und Meta-Angaben;
+// bild ist ein Pfad im Speicher (wird abgelegt) oder eine Adresse; seiteUrl macht daraus die absolute Adresse für og:image.
+export async function seiteUebernehmen(alt, wert, { cssDatei, bildAblegen, dateiAblegen, seiteUrl = "" }) {
   if (!wert || typeof wert.html !== "string" || wert.html.length > 500000) throw new Error("Seiteninhalt fehlt oder ist zu groß");
   if (wert.basis !== pruefwert(alt)) throw new Error("Die Seite wurde inzwischen geändert (z. B. durch einen KI-Wunsch). Bitte die Seite neu laden und die Änderung noch einmal machen.");
   const { kopf, body, fuss } = zerlegen(alt);
@@ -180,6 +197,12 @@ export async function seiteUebernehmen(alt, wert, { cssDatei, bildAblegen }) {
   const sauber = seiteBereinigen(ohne, marke);
   let neu = sauber.html;
   for (const b of sauber.bilder) {
+    if (b.datei) {
+      if (!dateiAblegen) throw new Error("Videos werden hier nicht unterstützt");
+      const src = await dateiAblegen(b.pfad);
+      neu = neu.replace(b.marke, () => esc(src));
+      continue;
+    }
     const x = await bildAblegen(b.pfad);
     const behalten = b.attr.filter(([n]) => !["src", "srcset", "sizes", "width", "height"].includes(n.toLowerCase()));
     if (!behalten.some(([n]) => n === "alt")) behalten.push(["alt", ""]);
@@ -194,5 +217,35 @@ export async function seiteUebernehmen(alt, wert, { cssDatei, bildAblegen }) {
   let k = kopf;
   const link = `<link rel="stylesheet" href="${cssDatei}">`;
   if (css && !k.includes(link)) k = k.replace(/<\/head>/i, `${link}\n</head>`);
-  return { text: k + "\n" + neu.trim() + "\n" + fuss, css };
+  const komponenten = /\sdata-komp="/.test(neu);
+  const skript = `<script src="${KOMPONENTEN}" defer></script>`;
+  if (komponenten && !k.includes(skript)) k = k.replace(/<\/head>/i, `${skript}\n</head>`);
+  if (wert.seo) k = await kopfSeo(k, wert.seo, { bildAblegen, seiteUrl });
+  return { text: k + "\n" + neu.trim() + "\n" + fuss, css, komponenten };
+}
+
+export const KOMPONENTEN = "kf-komponenten.js";
+
+// <title>, Beschreibung und Teilen-Angaben (Open Graph) im Kopf setzen. Leere Werte lassen den bisherigen Stand.
+async function kopfSeo(k, seo, { bildAblegen, seiteUrl }) {
+  const text = (w, max) => String(w || "").replace(/[\u0000-\u001f<>]/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+  const titel = text(seo.titel, 120), beschreibung = text(seo.beschreibung, 320);
+  const meta = (attr, name, inhalt) => {
+    const re = new RegExp(`<meta\\b[^>]*\\b${attr}=["']${name}["'][^>]*>`, "i");
+    const tag = `<meta ${attr}="${name}" content="${esc(inhalt)}">`;
+    k = re.test(k) ? k.replace(re, () => tag) : k.replace(/<\/head>/i, `${tag}\n</head>`);
+  };
+  if (titel) {
+    const re = /<title\b[^>]*>[\s\S]*?<\/title>/i;
+    k = re.test(k) ? k.replace(re, () => `<title>${esc(titel)}</title>`) : k.replace(/<\/head>/i, `<title>${esc(titel)}</title>\n</head>`);
+    meta("property", "og:title", titel);
+  }
+  if (beschreibung) { meta("name", "description", beschreibung); meta("property", "og:description", beschreibung); }
+  if (seo.bild) {
+    let src = "";
+    if (/^https?:\/\//i.test(seo.bild)) src = sichereAdresse(seo.bild);
+    else if (bildAblegen) src = (await bildAblegen(seo.bild)).src;
+    if (src) { try { src = new URL(src, seiteUrl || undefined).href; } catch (e) {} meta("property", "og:image", src); }
+  }
+  return k;
 }

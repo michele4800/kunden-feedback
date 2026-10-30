@@ -58,9 +58,41 @@ try {
     assert.equal(r.html, `<section class="x" id="i1" style="padding:4px" data-karte="hof"><h2>T</h2>
 <img src="a.webp" alt="A"><a>x</a><a href="https://a.de" target="_blank" rel="noopener">y</a>
 <svg viewBox="0 0 10 10" aria-hidden="true"><circle cx="5" cy="5" r="4"/></svg><div>z</div>
-<p>ok</p></section>`);
+<form><input name="p"></form><p>ok</p></section>`);
     assert.equal(r.bilder.length, 0);
     assert.equal(seiteBereinigen("1 &lt; 2 &amp; <b>fett", "m").html, "1 &lt; 2 &amp; <b>fett</b>");
+  });
+
+  await test("Formulare und Videos: ohne Ziel, nur einfache Felder, Video aus der Bibliothek wird Platzhalter", async () => {
+    const r = seiteBereinigen(`<form data-komp="formular" action="https://boese.de" method="post" onsubmit="x()"><label for="a">A</label>
+<input id="a" name="mail" type="email" required maxlength="80"><input name="pw" type="password"><input name="h" type="hidden" value="x">
+<button type="submit" formaction="https://boese.de">Los</button><textarea name="t" rows="4"><b>roh</b></textarea>
+<select name="s"><option selected>1</option></select></form>
+<video data-hintergrund="" src="https://x.supabase.co/sig" data-kf-datei="P1/v.mp4" autoplay muted loop playsinline onplay="x()"></video>`, "m");
+    assert.equal(r.html, `<form data-komp="formular"><label for="a">A</label>
+<input id="a" name="mail" type="email" required="" maxlength="80"><input name="pw" type="text"><input name="h" type="text" value="x">
+<button type="submit">Los</button><textarea name="t" rows="4"><b>roh</b></textarea>
+<select name="s"><option selected="">1</option></select></form>
+<video data-hintergrund="" autoplay="" muted="" loop="" playsinline="" src="mb0x"></video>`);
+    assert.deepEqual(r.bilder.map(b => [b.pfad, b.datei]), [["P1/v.mp4", true]]);
+  });
+
+  await test("Seite übernehmen: Komponenten-Skript einmal, SEO-Angaben im Kopf, Video abgelegt", async () => {
+    const html = ausDemEditor(SEITE, h => h + '<div data-komp="youtube" data-video="abc"><button type="button">Laden</button></div><video data-kf-datei="P1/v.mp4" src="https://s/x"></video>');
+    const opt = { cssDatei: "i.kf.css", seiteUrl: "https://x.github.io/hof/", dateiAblegen: async p => "bilder/kf-video-1.mp4", bildAblegen: async () => ({ src: "bilder/og.webp" }) };
+    const r = await seiteUebernehmen(SEITE, { html, css: "", basis: pruefwert(SEITE), seo: { titel: "Hofladen <Schneider>", beschreibung: "Frische Eier\nund Brot", bild: "P1/og.jpg" } }, opt);
+    assert.ok(r.komponenten);
+    assert.ok(r.text.indexOf('<script src="kf-komponenten.js" defer></script>') > 0 && r.text.indexOf('<script src="kf-komponenten.js"') < r.text.indexOf("</head>"));
+    assert.ok(r.text.includes("<title>Hofladen  Schneider </title>") || r.text.includes("<title>Hofladen Schneider</title>"), r.text.slice(0, 400));
+    assert.ok(r.text.includes('<meta name="description" content="Frische Eier und Brot">'));
+    assert.ok(r.text.includes('<meta property="og:image" content="https://x.github.io/hof/bilder/og.webp">'));
+    assert.ok(r.text.includes('<video src="bilder/kf-video-1.mp4"></video>'));
+    assert.equal(r.text.split("<title>").length, 2);
+    // zweite Runde: nichts doppelt, Beschreibung ersetzt
+    const r2 = await seiteUebernehmen(r.text, { html: ausDemEditor(r.text), css: "", basis: pruefwert(r.text), seo: { beschreibung: "Neu" } }, opt);
+    assert.equal(r2.text.split("kf-komponenten.js").length, 2);
+    assert.equal(r2.text.split('name="description"').length, 2);
+    assert.ok(r2.text.includes('content="Neu"') && r2.text.includes("og:image"));
   });
 
   await test("Seite übernehmen: Kopf, Body-Tag und automatische Bereiche bleiben Zeichen für Zeichen", async () => {
@@ -148,6 +180,15 @@ try {
       const fremd = ausDemEditor(t, h => h + '<img src="https://x/y" data-kf-bild="P2/geheim.jpg" alt="">');
       const r2 = await inhalteAnwenden(p, [{ schluessel: "seite-kombi", seite_url: "https://x.github.io/hof/kombi/", wert: { art: "seite", html: fremd, css: "", basis: pruefwert(t) } }], opt);
       assert.equal(r2[0].ok, false); assert.match(r2[0].meldung, /gehört nicht/);
+
+      // Formular auf der Seite: kf-komponenten.js mit Adresse und Projekt daneben
+      const mitForm = ausDemEditor(t, h => h + '<form data-komp="formular"><input name="name"><button>Senden</button></form>');
+      const r3 = await inhalteAnwenden(p, [{ schluessel: "seite-kombi", seite_url: "https://x.github.io/hof/kombi/", wert: { art: "seite", html: mitForm, css: "", basis: pruefwert(t) } }],
+        { ...opt, formularZiel: "https://x.supabase.co/functions/v1/formular", slug: "hof" });
+      assert.deepEqual(r3.map(x => x.ok), [true], JSON.stringify(r3));
+      const js = readFileSync(path.join(ordner, "kombi/kf-komponenten.js"), "utf8");
+      assert.ok(js.includes('const FORMULAR = "https://x.supabase.co/functions/v1/formular", PROJEKT = "hof"'));
+      assert.ok(readFileSync(path.join(ordner, "kombi/index.html"), "utf8").includes('<script src="kf-komponenten.js" defer></script>'));
     } finally { rmSync(ordner, { recursive: true, force: true }); }
   });
 
