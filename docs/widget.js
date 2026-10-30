@@ -181,7 +181,11 @@
 .kf-meta{font-size:12px;color:#6b6962;margin-top:6px}
 .kf-k{border-top:1px dashed #e3e1da;margin-top:10px;padding-top:8px}
 .kf-k div{font-size:14px;margin-top:6px}.kf-k b{font-weight:600}
-.kf-k form{display:flex;gap:6px;margin-top:8px}.kf-k input{flex:1;border:1px solid #8a877f;border-radius:8px;padding:6px 10px}
+.kf-k form{display:flex;gap:6px;margin-top:8px}
+.kf-k form.kf-rf{display:block;background:#fffbeb;border:1px solid #fde68a;border-radius:10px;padding:10px 12px}
+.kf-rf-titel{margin:0 0 4px;font-weight:600;font-size:14px;color:#78350f;white-space:pre-wrap}.kf-rf-hilfe{margin:0 0 8px;font-size:13px;color:#92400e}.kf-rf-opt{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+.kf-rf-opt .kf-btn{white-space:normal;text-align:left}
+.kf-rf textarea{display:block;width:100%;box-sizing:border-box;border:1px solid #8a877f;border-radius:8px;padding:8px 10px;font:inherit;resize:vertical;margin-bottom:8px}.kf-k input{flex:1;border:1px solid #8a877f;border-radius:8px;padding:6px 10px}
 .kf-nur{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
 .kf-markieren{position:fixed;left:50%;top:16px;transform:translateX(-50%);z-index:2147483002;background:#1b1b19;color:#fff;font:600 14px/1.4 system-ui,sans-serif;padding:10px 16px;border-radius:16px;box-shadow:0 6px 20px rgba(0,0,0,.3);display:flex;gap:10px;align-items:center;flex-wrap:wrap;justify-content:center;max-width:calc(100vw - 32px)}
 .kf-markieren.unten{top:auto;bottom:16px}
@@ -366,9 +370,20 @@
         ${(w.anhaenge || []).length ? `<div class="kf-fotos">${w.anhaenge.map(a => `<a class="kf-foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
         ${KF.schritte(w, "kf-schritte")}${arbeit}
         <div class="kf-meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}${meins && w.status === "offen" ? ` · <button type="button" class="kf-btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen</button>` : ""}</div>
-        <div class="kf-k">${ks.map(k => `<div><b>${esc(namen[k.autor] || "")}:</b> ${esc(k.text)}</div>`).join("")}
-          <form data-form="kommentar" data-id="${w.id}"><label class="kf-nur" for="kf-k-${w.id}">Antwort zu diesem Wunsch</label>
-            <input id="kf-k-${w.id}" maxlength="5000" placeholder="${w.status === "rueckfrage" ? "Rückfrage beantworten…" : "Antworten…"}"><button class="kf-btn klein">Senden</button></form></div></li>`;
+        <div class="kf-k">${ks.filter(k => !(w.status === "rueckfrage" && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}:</b> ${esc(k.text)}</div>`).join("")}
+          ${w.status === "rueckfrage" ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="kf-nur" for="kf-k-${w.id}">Antwort zu diesem Wunsch</label>
+            <input id="kf-k-${w.id}" maxlength="5000" placeholder="Antworten…"><button class="kf-btn klein">Senden</button></form>`}</div></li>`;
+    }
+    // Rückfrage der Automatik: Vorschläge zum Antippen und immer ein freies Antwortfeld
+    function antwortBox(w) {
+      const rf = (w.details || {}).rueckfrage || {}, opt = rf.optionen || [];
+      return `<form class="kf-rf" data-form="kommentar" data-id="${w.id}">
+        <p class="kf-rf-titel" id="kf-rf-${w.id}">${esc(rf.frage || "Rückfrage")}</p>
+        ${opt.length ? `<p class="kf-rf-hilfe">Antwort antippen oder selbst schreiben</p>` : ""}
+        ${opt.length ? `<div class="kf-rf-opt" role="group" aria-labelledby="kf-rf-${w.id}">${opt.map(o => `<button type="submit" class="kf-btn hell klein" name="option" value="${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}
+        <label class="kf-nur" for="kf-k-${w.id}">Eigene Antwort</label>
+        <textarea id="kf-k-${w.id}" rows="3" maxlength="5000" placeholder="${opt.length ? "Oder eigene Antwort schreiben …" : "Rückfrage beantworten …"}"></textarea>
+        <button class="kf-btn klein">Antwort senden</button></form>`;
     }
 
     function anmeldung(meldung = "") {
@@ -450,7 +465,8 @@
           neu = leer(); await zeichnen(); zaehlen();
           const ziel = dlg.querySelector(zurListe ? ".kf-sammel" : ".kf-liste"); if (ziel) ziel.scrollIntoView({ block: "start" });
         } else if (f.dataset.form === "kommentar") {
-          const feld = f.querySelector("input"), text = feld.value.trim();
+          const feld = f.querySelector("input, textarea"), opt = e.submitter && e.submitter.name === "option";
+          const text = (opt ? e.submitter.value : feld.value).trim();
           if (!text) return;
           await be.kommentarAnlegen(f.dataset.id, text); feld.value = ""; await zeichnen();
         }

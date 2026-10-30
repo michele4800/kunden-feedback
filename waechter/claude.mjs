@@ -41,24 +41,27 @@ Halte dich an die Projektregeln (README.md, CLAUDE.md im Ordner). Ändere so wen
 Schreibe zusammenfassung und frage auf Deutsch, freundlich, in einfachen Worten, für den Kunden verständlich.
 zusammenfassung: meist ein Satz, höchstens zwei; nur was der Kunde auf der Website jetzt anders sieht, passend zu seinem Wunsch. Keine Füllsätze.
 Nichts Technisches: keine Dateien, Ordner, Code, Bau, Entwürfe-Interna, keine Aufzählung jeder einzelnen Stelle, nichts über Dinge, die gleich geblieben sind.
-frage: genau eine kurze Frage; Auswahlmöglichkeiten höchstens als „A oder B?“.
+frage: genau eine kurze Frage. optionen: passen 2–4 naheliegende Antworten, nenne sie kurz (je höchstens ein paar Wörter) – der Kunde kann sie
+anklicken oder frei antworten; sonst bleibt optionen leer.
 Bei ergebnis "nicht_moeglich" oder "rueckfrage" nichts über Bau oder Prüfungen schreiben, nur den Grund in einem Satz.
 Hat der Kunde Fotos angehängt, liegen sie im Ordner eingang/ (Liste im Wunsch). Sieh sie dir mit Read an. Ändere oder verschiebe sie nicht.
 Soll ein Foto auf die Website, trage es in "fotos" ein (datei = Pfad aus der Liste, ziel = kurzer Name aus Kleinbuchstaben, Ziffern
 und Bindestrichen). Die Automatik legt es danach unter dem im Auftrag genannten Pfad ab – verweise im Code genau darauf.
 Bei einer Textänderung gilt der neue Text wörtlich, so wie der Kunde ihn geschrieben hat.`;
 
+// Antwortvorschläge zu einer Rückfrage (Knöpfe im Widget/Portal; freie Antwort bleibt immer möglich)
+const OPTIONEN = { type: "array", maxItems: 4, items: { type: "string" } };
 // minuten: für alle Wünsche zusammen; rueckfragen: nur für Wünsche, denen eine Information fehlt
 export const SCHEMA_SCHAETZUNG = { type: "object", additionalProperties: false, required: ["minuten", "rueckfragen"],
   properties: { minuten: { type: "integer", minimum: 5, maximum: 600 },
-    rueckfragen: { type: "array", items: { type: "object", additionalProperties: false, required: ["nr", "frage"],
-      properties: { nr: { type: "integer", minimum: 1 }, frage: { type: "string" } } } } } };
+    rueckfragen: { type: "array", items: { type: "object", additionalProperties: false, required: ["nr", "frage", "optionen"],
+      properties: { nr: { type: "integer", minimum: 1 }, frage: { type: "string" }, optionen: OPTIONEN } } } } };
 // Je Wunsch ein Ergebnis (nr wie im <wunsch nr>), dazu die Fotos, die auf die Website sollen
 export const SCHEMA_ERGEBNIS = { type: "object", additionalProperties: false, required: ["ergebnisse", "fotos"],
   properties: {
-    ergebnisse: { type: "array", minItems: 1, items: { type: "object", additionalProperties: false, required: ["nr", "ergebnis", "zusammenfassung", "frage"],
+    ergebnisse: { type: "array", minItems: 1, items: { type: "object", additionalProperties: false, required: ["nr", "ergebnis", "zusammenfassung", "frage", "optionen"],
       properties: { nr: { type: "integer", minimum: 1 }, ergebnis: { enum: ["erledigt", "rueckfrage", "nicht_moeglich"] },
-        zusammenfassung: { type: "string" }, frage: { type: "string" } } } },
+        zusammenfassung: { type: "string" }, frage: { type: "string" }, optionen: OPTIONEN } } },
     fotos: { type: "array", maxItems: 10, items: { type: "object", additionalProperties: false, required: ["datei", "ziel"],
       properties: { datei: { type: "string" }, ziel: { type: "string", pattern: "^[a-z0-9][a-z0-9-]{0,60}$" } } } } } };
 

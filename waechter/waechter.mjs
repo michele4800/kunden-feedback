@@ -97,6 +97,13 @@ const zuruecksetzen = (p) => { git(p.ordner, "reset", "--hard", "-q"); git(p.ord
 // ---------- Datenbank-Helfer ----------
 const aendern = (id, patch) => sb.from("wuensche").update(patch).eq("id", id).then(ok);
 const kommentieren = (wunsch_id, text) => sb.from("kommentare").insert({ wunsch_id, text: text.slice(0, 4900) }).then(ok);
+// Rückfrage stellen; Antwortvorschläge liegen in details.rueckfrage und erscheinen beim Kunden als Knöpfe
+async function rueckfragen(w, { frage, optionen = [] }) {
+  const opt = [...new Set((optionen || []).map(o => String(o).trim().slice(0, 120)).filter(Boolean))].slice(0, 4);
+  await aendern(w.id, { status: "rueckfrage", bearbeiter: NAME, fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null,
+    details: { ...(w.details || {}), rueckfrage: { frage: frage.slice(0, 1000), optionen: opt } } });
+  await kommentieren(w.id, frage);
+}
 async function lebenszeichen(projekt_id, hinweis, slug) {
   ok(await sb.from("automatik").update({ letzter_lauf: new Date().toISOString(), hinweis: hinweis.slice(0, 480),
     ...(slug ? { heute_laeufe: heuteZaehlen(0, slug) } : {}) }).eq("projekt_id", projekt_id));
@@ -261,11 +268,8 @@ Fehlt bei einem Wunsch eine Information, trage ihn mit nr und Frage in "rueckfra
     for (const w of ws) await anAgentur(w, `Schätzung fehlgeschlagen: ${e.message}`);
     return;
   }
-  const fragen = new Map((s.rueckfragen || []).filter(f => f.frage && ws[f.nr - 1]).map(f => [ws[f.nr - 1].id, f.frage]));
-  for (const w of ws.filter(w => fragen.has(w.id))) {
-    await aendern(w.id, { status: "rueckfrage", bearbeiter: NAME, fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null });
-    await kommentieren(w.id, fragen.get(w.id));
-  }
+  const fragen = new Map((s.rueckfragen || []).filter(f => f.frage && ws[f.nr - 1]).map(f => [ws[f.nr - 1].id, f]));
+  for (const w of ws.filter(w => fragen.has(w.id))) await rueckfragen(w, fragen.get(w.id));
   const aktiv = daten.filter(d => !fragen.has(d.w.id));
   if (!aktiv.length) { leeren(); return; }
   for (const { w } of aktiv) await aendern(w.id, { status: "in_arbeit", bearbeiter: NAME, fortschritt: "Wird umgesetzt",
@@ -362,8 +366,7 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
       else await aendern(d.w.id, { status: "zur_freigabe", details: { ...(d.w.details || {}), zweig }, fortschritt: "Umgesetzt – wartet auf Freigabe durch die Agentur", fertig_bis: null });
       await kommentieren(d.w.id, e.zusammenfassung);
     } else if (e.ergebnis === "rueckfrage" || (e.ergebnis === "erledigt" && nichtsGeaendert)) {
-      await aendern(d.w.id, { status: "rueckfrage", fortschritt: "Rückfrage an euch – bitte unten antworten", fertig_bis: null });
-      await kommentieren(d.w.id, e.frage || "Ich konnte nichts finden, was ich ändern müsste. Könnt ihr genauer beschreiben, was anders sein soll?");
+      await rueckfragen(d.w, e.frage ? e : { frage: "Ich konnte nichts finden, was ich ändern müsste. Könnt ihr genauer beschreiben, was anders sein soll?" });
     } else {
       await anAgentur(d.w, fehler || e.zusammenfassung);
       if (e.ergebnis === "nicht_moeglich") await kommentieren(d.w.id, e.zusammenfassung || "Diesen Wunsch schaut sich die Agentur persönlich an.");
@@ -473,7 +476,12 @@ async function runde(meineId) {
       const paket = kopf && (kopf.details || {}).paket;
       const ws = paket ? warteschlange.filter(w => (w.details || {}).paket === paket).slice(0, 10) : kopf ? [kopf] : [];
       const unvollstaendig = paket && ws.length < (+kopf.details.paket_anzahl || 0) && Date.now() - Date.parse(kopf.erstellt_am) < 60000;
-      if (ws.length && !unvollstaendig) await umsetzen(p, projekt, modus, ws, namen, meineId);
+      // Bricht ein Durchlauf unerwartet ab, bleibt kein Wunsch ewig „in Arbeit“ hängen
+      if (ws.length && !unvollstaendig) await umsetzen(p, projekt, modus, ws, namen, meineId).catch(async e => {
+        log(`[${slug}] ${ws[0].id.slice(0, 8)} abgebrochen: ${e.message}`);
+        await sb.from("wuensche").update({ bearbeiter: "Agentur", status: "offen", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null })
+          .in("id", ws.map(w => w.id)).eq("status", "in_arbeit").eq("bearbeiter", NAME);
+      });
       await lebenszeichen(projekt.id, "Bereit", slug);
     } catch (e) {
       log(`[${slug}] Fehler:`, e.message);
@@ -491,6 +499,11 @@ await new Promise(weiter => net.createServer().once("error", e => {
 
 const anmeldung = ok(await sb.auth.signInWithPassword({ email: ENV.KF_EMAIL, password: ENV.KF_PASSWORT }));
 const meineId = anmeldung.user.id;
+// Nach Absturz oder Neustart: was dieser Wächter noch „in Arbeit“ hatte, wird neu eingereiht
+// (die Port-Sperre oben garantiert, dass auf diesem PC kein anderer Wächter mehr daran arbeitet)
+const haengend = ok(await sb.from("wuensche").update({ status: "offen", fortschritt: "Wird nach einem Neustart erneut aufgegriffen", fertig_bis: null })
+  .eq("status", "in_arbeit").eq("bearbeiter", NAME).select("id"));
+if (haengend.length) log(`${haengend.length} hängengebliebene(n) Wunsch/Wünsche neu eingereiht`);
 log(`Wächter gestartet als ${ENV.KF_EMAIL}, prüft alle ${INTERVALL / 1000} s. Beenden mit Strg+C.`);
 let läuft = false, nochmal = false;
 const takt = async () => {

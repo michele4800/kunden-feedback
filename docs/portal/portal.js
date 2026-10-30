@@ -199,10 +199,21 @@
         <div><label for="p-${w.id}">Stand für den Kunden</label><input id="p-${w.id}" type="text" maxlength="500" data-feld="fortschritt" data-id="${w.id}" value="${esc(w.fortschritt)}"></div>
         ${w.status === "zur_freigabe" && !w.freigegeben ? `<div style="grid-column:1/-1"><button class="btn" data-aktion="freigeben" data-id="${w.id}">Umsetzung freigeben und veröffentlichen</button></div>` : ""}
       </div>` : ""}
-      <div class="verlauf">${ks.map(k => `<div><b>${esc(namen[k.autor] || "")}</b> <small>${esc(KF.zeit(k.erstellt_am))}</small><br>${esc(k.text)}</div>`).join("")}
-        <form data-form="kommentar" data-id="${w.id}"><label class="nur-vorleser" for="k-${w.id}">Antwort</label>
-          <input id="k-${w.id}" type="text" maxlength="5000" placeholder="${w.status === "rueckfrage" ? "Rückfrage beantworten …" : "Antworten …"}"><button class="btn klein">Senden</button></form></div>
+      <div class="verlauf">${ks.filter(k => !(w.status === "rueckfrage" && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}</b> <small>${esc(KF.zeit(k.erstellt_am))}</small><br>${esc(k.text)}</div>`).join("")}
+        ${w.status === "rueckfrage" ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="nur-vorleser" for="k-${w.id}">Antwort</label>
+          <input id="k-${w.id}" type="text" maxlength="5000" placeholder="Antworten …"><button class="btn klein">Senden</button></form>`}</div>
     </li>`;
+  }
+  // Rückfrage der Automatik: Vorschläge zum Anklicken und immer ein freies Antwortfeld
+  function antwortBox(w) {
+    const rf = (w.details || {}).rueckfrage || {}, opt = rf.optionen || [];
+    return `<form class="rf" data-form="kommentar" data-id="${w.id}">
+      <p class="rf-titel" id="rf-${w.id}">${esc(rf.frage || "Rückfrage")}</p>
+        ${opt.length ? `<p class="rf-hilfe">Antwort anklicken oder selbst schreiben</p>` : ""}
+      ${opt.length ? `<div class="rf-opt" role="group" aria-labelledby="rf-${w.id}">${opt.map(o => `<button type="submit" class="btn hell klein" name="option" value="${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}
+      <label class="nur-vorleser" for="k-${w.id}">Eigene Antwort</label>
+      <textarea id="k-${w.id}" rows="3" maxlength="5000" placeholder="${opt.length ? "Oder eigene Antwort schreiben …" : "Rückfrage beantworten …"}"></textarea>
+      <button class="btn klein">Antwort senden</button></form>`;
   }
 
   function fragenAnsicht(fragen, antworten) {
@@ -313,8 +324,9 @@
     const f = e.target;
     try {
       if (f.dataset.form === "kommentar") {
-        const feld = f.querySelector("input"); if (!feld.value.trim()) return;
-        await be.kommentarAnlegen(f.dataset.id, feld.value.trim()); feld.value = ""; await zeichnen();
+        const feld = f.querySelector("input, textarea"), opt = e.submitter && e.submitter.name === "option";
+        const text = (opt ? e.submitter.value : feld.value).trim(); if (!text) return;
+        await be.kommentarAnlegen(f.dataset.id, text); feld.value = ""; await zeichnen();
       }
       if (f.dataset.form === "neu") {
         const text = f.querySelector("#n-text").value.trim();

@@ -349,7 +349,8 @@
       const w = (p, text, status, prioritaet, min, extra = {}) => d.wuensche.push({ id: neu(), projekt_id: p.id, autor: "demo-kunde", text, status, prioritaet,
         art: "sonstiges", details: {}, anhaenge: [], stelle: null, seite_url: (p.vorschau_url || p.live_url) + "", seite_titel: "Startseite",
         bearbeiter: status === "in_arbeit" ? "Michele (Automatik)" : "", fortschritt: "", fertig_bis: null, freigegeben: false, erstellt_am: vor(min), geaendert_am: vor(min), ...extra });
-      w(a, "Tausch das Bild vom Hofladen gegen das neue Foto", "rueckfrage", 2, 300);
+      w(a, "Tausch das Bild vom Hofladen gegen das neue Foto", "rueckfrage", 2, 300,
+        { details: { rueckfrage: { frage: "Welches Foto meint ihr?", optionen: ["Das Foto oben auf der Startseite", "Das Foto im Abschnitt Hofladen", "Beide"] } } });
       w(a, "Öffnungszeiten am 24.12. nur bis 12 Uhr", "offen", 1, 12);
       w(a, "Das soll mittig sein", "erledigt", 2, 900);
       w(b, "Neue Seite für Torten", "zur_freigabe", 2, 120);
