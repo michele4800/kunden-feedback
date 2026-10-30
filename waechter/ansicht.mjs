@@ -59,16 +59,28 @@ export async function ansichten(p, { seite, selektor = "", ziel, praefix, versch
       await seiteTab.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important}" });
       // Abschnitt um die markierte Stelle suchen, Stelle gestrichelt rot umranden
       const rahmen = await seiteTab.evaluate((sel, v) => {
+        // Fest stehende Einblendungen (Entwurfs-Leiste, Knöpfe) würden sonst über dem Ausschnitt liegen
+        for (const x of document.querySelectorAll("body *")) if (getComputedStyle(x).position === "fixed") x.style.visibility = "hidden";
         let el = null;
         try { el = sel ? document.querySelector(sel) : null; } catch (e) {}
         if (!el) return null;
         el.style.outline = "3px dashed #e11d48"; el.style.outlineOffset = "4px";
         if (v) { if (getComputedStyle(el).display === "inline") el.style.display = "inline-block"; el.style.transform = `${el.style.transform} translate(${v.dx}px, ${v.dy}px)`; }
         const block = el.closest("section, header, footer, aside, main > *") || el;
-        block.scrollIntoView({ block: "start" });
-        const b = block.getBoundingClientRect();
-        return { x: 0, y: b.top + scrollY, width: document.documentElement.clientWidth, height: Math.min(Math.max(b.height, 300), 1800) };
+        el.scrollIntoView({ block: "center" });  // lädt auch Bilder mit loading="lazy" rund um die Stelle
+        const b = block.getBoundingClientRect(), r = el.getBoundingClientRect();
+        let y = b.top + scrollY, hoehe = Math.max(b.height, 300);
+        // Langer Abschnitt: Ausschnitt um die markierte Stelle statt nur den Anfang des Abschnitts
+        if (hoehe > 1800) {
+          const mitte = r.top + scrollY + r.height / 2;
+          y = Math.max(y, Math.min(mitte - 700, b.bottom + scrollY - 1400));
+          hoehe = 1400;
+        }
+        return { x: 0, y, width: document.documentElement.clientWidth, height: hoehe };
       }, selektor, v);
+      // Nach dem Scrollen nachgeladene Bilder (loading="lazy") abwarten
+      await seiteTab.waitForNetworkIdle({ idleTime: 300, timeout: 5000 }).catch(() => {});
+      await seiteTab.evaluate(() => Promise.all([...document.images].filter(i => !i.complete).map(i => new Promise(ok => { i.onload = i.onerror = ok; setTimeout(ok, 3000); }))));
       const datei = path.join(ziel, `${praefix}-${g.name}.png`).replaceAll("\\", "/");
       await seiteTab.screenshot({ path: path.join(p.ordner, datei), ...(rahmen ? { clip: rahmen, captureBeyondViewport: true } : {}) });
       fotos.push(datei);

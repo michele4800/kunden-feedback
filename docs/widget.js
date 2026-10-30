@@ -652,7 +652,7 @@
     function selektor(el) {
       if (el.id) return "#" + CSS.escape(el.id);
       const teile = [];
-      while (el && el !== document.body && teile.length < 6) {
+      while (el && el !== document.body && teile.length < 12) {
         let t = el.tagName.toLowerCase();
         if (el.id) { teile.unshift("#" + CSS.escape(el.id)); break; }
         const geschwister = el.parentElement ? [...el.parentElement.children].filter(x => x.tagName === el.tagName) : [];
