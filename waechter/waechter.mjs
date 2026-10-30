@@ -228,11 +228,14 @@ async function fotosHolen(p, w, kurz) {
 }
 // ---------- Ein Wunsch oder ein Paket gesammelter Wünsche (ein Durchlauf, ein Commit) ----------
 async function umsetzen(p, projekt, modus, ws, namen, meineId) {
+  // Wünsche atomar beanspruchen: nur was noch „offen“ ist, gehört diesem Wächter – ein zweiter (auch auf einem anderen PC) geht leer aus
+  const geholt = new Set(ok(await sb.from("wuensche").update({ status: "in_arbeit", bearbeiter: NAME, fortschritt: "Schaut sich den Wunsch an und schätzt den Aufwand", fertig_bis: null })
+    .in("id", ws.map(w => w.id)).eq("status", "offen").select("id")).map(r => r.id));
+  ws = ws.filter(w => geholt.has(w.id));
+  if (!ws.length) return;
   const kurz = ws[0].id.slice(0, 8);
   const nrVon = new Map(ws.map((w, i) => [w.id, i + 1]));
   log(`[${p.slug}] ${ws.length > 1 ? `Paket ${kurz} mit ${ws.length} Wünschen` : `Wunsch ${kurz}`}: ${ws.map(w => w.text.slice(0, 40)).join(" | ").slice(0, 160)}`);
-  // Sofort zeigen, dass jemand dran ist – die Schätzung dauert oft eine halbe Minute
-  for (const w of ws) await aendern(w.id, { status: "in_arbeit", bearbeiter: NAME, fortschritt: "Schaut sich den Wunsch an und schätzt den Aufwand", fertig_bis: null });
   rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
   const daten = [];
   for (const w of ws) {
