@@ -1,6 +1,6 @@
 // Agentur-Dashboard: alle Websites, ihre Kunden (Logins), Wünsche, Veröffentlichungen und der Zustand der Automatik. Nur für Admins.
 (async function () {
-  const V = "20261030d";
+  const V = "20261030f";
   const laden = src => new Promise((ok, fehler) => { const s = document.createElement("script"); s.src = src + "?v=" + V; s.onload = ok; s.onerror = fehler; document.head.appendChild(s); });
   if ((window.KF_KONFIG || {}).url) await laden("../vendor/supabase.js");
   await laden("../backend.js");
@@ -67,7 +67,7 @@
     }
     if (stopp) stopp();
     let warten = null;
-    stopp = be.beobachtenAlle(() => { clearTimeout(warten); warten = setTimeout(() => { if (!tippt() && !offen && !zgModus && !["neu", "kunden", "konto"].includes(reiter)) zeichnen(); }, 400); });
+    stopp = be.beobachtenAlle(() => { clearTimeout(warten); warten = setTimeout(() => { if (!tippt() && !offen && !zgModus && !["neu", "kunden", "konto", "ki"].includes(reiter)) zeichnen(); }, 400); });
     await zeichnen();
     kundenLaden();
   }
@@ -85,11 +85,11 @@
     const alle = alleKunden(d);
     const reiterListe = [["websites", `Websites (${d.projekte.length})`], ["kunden", `Kunden${alle ? ` (${new Set(alle.map(z => z.user_id)).size})` : ""}`],
       ["wuensche", `Alle Wünsche (${offeneW.length} offen)`],
-      ["veroeffentlichungen", `Veröffentlichungen${fehlerV.length ? ` (${fehlerV.length} Fehler)` : ""}`], ["neu", "+ Neue Website"]];
+      ["veroeffentlichungen", `Veröffentlichungen${fehlerV.length ? ` (${fehlerV.length} Fehler)` : ""}`], ["ki", "KI"], ["neu", "+ Neue Website"]];
     inhalt.innerHTML = `${be.istDemo ? `<p class="demo">Demo-Modus – Beispieldaten nur in diesem Browser.</p>` : ""}
       ${lage(d)}
       <div class="reiter" role="tablist">${reiterListe.map(([id, t]) => `<button role="tab" aria-selected="${reiter === id}" data-reiter="${id}">${t}</button>`).join("")}</div>
-      <div id="ansicht">${({ konto: kontoAnsicht, websites: websiteAnsicht, kunden: kundenAnsicht, wuensche: wunschAnsicht, veroeffentlichungen: protokollAnsicht, neu: neuAnsicht })[reiter](d)}</div>`;
+      <div id="ansicht">${({ ki: kiAnsicht, konto: kontoAnsicht, websites: websiteAnsicht, kunden: kundenAnsicht, wuensche: wunschAnsicht, veroeffentlichungen: protokollAnsicht, neu: neuAnsicht })[reiter](d)}</div>`;
   }
 
   function lage(d) {
@@ -270,6 +270,45 @@
     </form>`;
   }
 
+  // ---------- KI-Anbieter der Automatik ----------
+  const KI = {
+    cli: { name: "Claude Code auf deinem PC", info: "Läuft über dein Claude-Abo auf dem PC mit der Automatik. Kein API-Schlüssel nötig." },
+    claude_api: { name: "Claude-API", info: "Abrechnung pro Nutzung bei Anthropic.", platz: "sk-ant-…", wo: "console.anthropic.com → API Keys" },
+    openai_api: { name: "ChatGPT-API", info: "Abrechnung pro Nutzung bei OpenAI.", platz: "sk-…", wo: "platform.openai.com → API keys" },
+  };
+  let kiDaten = null, kiMeldung = "";
+  async function kiLaden() {
+    try { kiDaten = await be.kiAnbieter(); }
+    catch (err) { kiDaten = { fehler: /ki_einstellungen|ki_schluessel|does not exist|schema cache/i.test(err.message) ? "Die KI-Einstellungen sind in Supabase noch nicht eingerichtet (schema.sql ausführen)." : err.message }; }
+    if (reiter === "ki") zeichnen();
+  }
+  function kiAnsicht() {
+    if (!kiDaten) { kiLaden(); return `<p class="hinweis">Wird geladen …</p>`; }
+    if (kiDaten.fehler) return `<p class="fehler">${esc(kiDaten.fehler)}</p>`;
+    const e = kiDaten.einstellungen, hat = a => kiDaten.schluessel.find(s => s.anbieter === a);
+    const wahl = Object.entries(KI).map(([id, k]) => `<label style="display:flex;gap:10px;align-items:flex-start;font-weight:400;margin:10px 0">
+        <input type="radio" name="anbieter" value="${id}" ${e.anbieter === id ? "checked" : ""} style="margin-top:4px">
+        <span><b>${k.name}</b>${id !== "cli" && !hat(id) ? ` <span class="fehler" style="font-size:13px">– noch kein Schlüssel</span>` : ""}<br><span class="hinweis">${k.info}</span></span></label>`).join("");
+    const schluessel = ["claude_api", "openai_api"].map(a => { const s = hat(a), k = KI[a]; return `<form class="karte ki-schluessel" data-anbieter="${a}" style="margin-top:16px;max-width:760px">
+        <b>${k.name}</b>
+        <p class="hinweis" style="margin:4px 0 0">${s ? `Schlüssel hinterlegt (endet auf …${esc(s.endung)}), gespeichert ${esc(vor(s.geaendert_am))}.` : "Noch kein Schlüssel hinterlegt."} Einen Schlüssel bekommst du unter ${k.wo}.</p>
+        <label for="ks-${a}">${s ? "Neuen Schlüssel eintragen (ersetzt den alten)" : "API-Schlüssel"}</label>
+        <input id="ks-${a}" name="schluessel" type="password" autocomplete="off" spellcheck="false" placeholder="${k.platz}" required>
+        <div class="zeile"><button class="btn">${s ? "Ersetzen" : "Speichern"}</button>${s ? `<button type="button" class="btn hell" data-aktion="ki-loeschen" data-anbieter="${a}">Löschen</button>` : ""}<span class="fehler" role="alert"></span></div>
+      </form>`; }).join("");
+    return `${kiMeldung ? `<p class="zg-meldung" role="status">${esc(kiMeldung)}</p>` : ""}
+      <form class="neu-form karte" id="ki-form">
+        <div class="breit"><h2 style="margin:0 0 4px;font-size:20px">Welche KI setzt die Wünsche um?</h2>
+          <p class="hinweis" style="margin:0">Gilt für alle Websites ab dem nächsten Wunsch. Die Automatik muss dafür nicht neu starten.</p></div>
+        <div class="breit">${wahl}</div>
+        <div><label for="ki-mc">Claude-Modell</label><input id="ki-mc" name="modell_claude" type="text" list="ki-claude-modelle" value="${esc(e.modell_claude)}" required spellcheck="false">
+          <datalist id="ki-claude-modelle"><option value="claude-opus-5-5"><option value="claude-sonnet-5-5"><option value="claude-haiku-5-5"></datalist></div>
+        <div><label for="ki-mo">ChatGPT-Modell</label><input id="ki-mo" name="modell_openai" type="text" value="${esc(e.modell_openai)}" required spellcheck="false"></div>
+        <p class="hinweis breit" style="margin:8px 0 0">Die Schlüssel liegen verschlüsselt in Supabase. Nur die Automatik kann sie lesen, das Dashboard zeigt nur die letzten 4 Zeichen.</p>
+        <div class="zeile breit"><button class="btn">Speichern</button><span class="fehler" role="alert"></span></div>
+      </form>${schluessel}`;
+  }
+
   // ---------- Neue Website (mit erstem Kunden-Login) ----------
   function neuAnsicht() {
     return `<form class="neu-form karte" id="neu-kunde">
@@ -318,6 +357,13 @@
       const text = document.getElementById(t.dataset.kopieren).textContent;
       try { await navigator.clipboard.writeText(text); t.textContent = "Kopiert"; } catch (err) { t.textContent = "Bitte von Hand markieren und kopieren"; }
       return;
+    }
+    if (t.dataset.aktion === "ki-loeschen") {
+      const aktiv = kiDaten.einstellungen.anbieter === t.dataset.anbieter;
+      if (!confirm(`Den Schlüssel für ${KI[t.dataset.anbieter].name} löschen?${aktiv ? "\nDie Automatik nutzt dann wieder Claude Code auf deinem PC." : ""}`)) return;
+      try { await be.kiSchluesselLoeschen(t.dataset.anbieter); kiMeldung = aktiv ? "Schlüssel gelöscht – die Automatik nutzt wieder Claude Code." : "Schlüssel gelöscht."; }
+      catch (err) { kiMeldung = err.message; }
+      kiDaten = null; return zeichnen();
     }
     if (t.dataset.aktion === "einstellungen") {
       const zu = offen === t.dataset.id;
@@ -391,6 +437,21 @@
         zgModus = "";
         await kundenLaden();
       } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
+    } else if (f.id === "ki-form") {
+      const x = Object.fromEntries(new FormData(f));
+      if (x.anbieter !== "cli" && !kiDaten.schluessel.some(s => s.anbieter === x.anbieter)) { meldung.textContent = `Für ${KI[x.anbieter].name} erst unten einen Schlüssel hinterlegen.`; return; }
+      knopf.disabled = true;
+      try {
+        await be.kiAnbieterSpeichern({ anbieter: x.anbieter, modell_claude: x.modell_claude.trim(), modell_openai: x.modell_openai.trim() });
+        kiMeldung = `Gespeichert – die Automatik nutzt jetzt ${KI[x.anbieter].name}.`; kiDaten = null; await zeichnen();
+      } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
+    } else if (f.matches(".ki-schluessel")) {
+      knopf.disabled = true;
+      try {
+        await be.kiSchluesselSetzen(f.dataset.anbieter, f.schluessel.value);
+        f.schluessel.value = "";
+        kiMeldung = `Schlüssel für ${KI[f.dataset.anbieter].name} gespeichert.`; kiDaten = null; await zeichnen();
+      } catch (err) { meldung.textContent = err.message; knopf.disabled = false; }
     } else if (f.id === "konto-form") {
       const x = Object.fromEntries(new FormData(f));
       if (x["k-neu"] !== x["k-neu2"]) { meldung.textContent = "Die beiden neuen Passwörter sind nicht gleich."; return; }
@@ -420,7 +481,7 @@
   });
 
   // Ohne Live-Verbindung (oder im Demo-Modus) zumindest jede Minute auffrischen
-  setInterval(() => { if (daten && !tippt() && !offen && !zgModus && !["neu", "kunden", "konto"].includes(reiter)) zeichnen(); }, 60000);
+  setInterval(() => { if (daten && !tippt() && !offen && !zgModus && !["neu", "kunden", "konto", "ki"].includes(reiter)) zeichnen(); }, 60000);
   be.beiAnmeldung(ereignis => { if (ereignis === "SIGNED_OUT") anmeldung(); });
   start();
 })();

@@ -23,6 +23,12 @@ await db.exec(`
   alter table storage.objects enable row level security;
   grant usage on schema storage to authenticated;
   grant select, insert, delete on storage.objects to authenticated;
+  -- Supabase Vault nachbilden (ohne Verschlüsselung, nur für die Rechteprüfung)
+  create schema vault;
+  create table vault.secrets (id uuid primary key default gen_random_uuid(), name text, secret text);
+  create view vault.decrypted_secrets as select id, name, secret as decrypted_secret from vault.secrets;
+  create function vault.create_secret(s text, n text, d text) returns uuid language sql as $$ insert into vault.secrets (name, secret) values (n, s) returning id $$;
+  create function vault.update_secret(i uuid, s text) returns void language sql as $$ update vault.secrets set secret = s where id = i $$;
 `);
 await db.exec(schema);
 await db.exec(schema); // zweimal: muss wiederholbar sein
@@ -236,6 +242,28 @@ await test("Foto-Speicher: nur im eigenen Projekt hochladen und lesen, löschen 
   assert.equal((await als("kundeA2", "select count(*)::int c from storage.objects")).rows[0].c, 1);
   assert.equal((await als("kundeA", "delete from storage.objects returning id")).rows.length, 0);
   assert.equal((await als("agentur", "delete from storage.objects returning id")).rows.length, 1);
+});
+
+await test("KI-Anbieter: Admin pflegt, nur die Automatik liest den Schlüssel, niemand sonst", async () => {
+  assert.equal((await als("kundeA", "select count(*)::int c from ki_einstellungen")).rows[0].c, 0);
+  assert.equal((await als("kundeA", "select count(*)::int c from ki_schluessel")).rows[0].c, 0);
+  await fehlt("kundeA", "select ki_schluessel_setzen('claude_api', 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz')", [], /Nur für Admins/);
+  await fehlt("admin", "select ki_schluessel_setzen('claude_api', 'zu kurz')", [], /nicht gültig/);
+  await als("admin", "select ki_schluessel_setzen('claude_api', 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz')");
+  await als("admin", "select ki_schluessel_setzen('claude_api', 'sk-ant-api03-zweiterSchluessel-1234XYZ9')");  // ersetzt, kein zweites Geheimnis
+  assert.equal((await db.query("select count(*)::int c from vault.secrets")).rows[0].c, 1);
+  assert.equal((await als("admin", "select endung from ki_schluessel")).rows[0].endung, "XYZ9");
+  await als("admin", "update ki_einstellungen set anbieter = 'claude_api'");
+  assert.equal((await als("claude", "update ki_einstellungen set anbieter = 'cli' returning id")).rows.length, 0);  // RLS: nur Admin
+  assert.equal((await als("claude", "select anbieter from ki_einstellungen")).rows[0].anbieter, "claude_api");
+  assert.equal((await als("claude", "select ki_schluessel_holen('claude_api') s")).rows[0].s, "sk-ant-api03-zweiterSchluessel-1234XYZ9");
+  await fehlt("admin", "select ki_schluessel_holen('claude_api')", [], /Nur für die Automatik/);
+  await fehlt("kundeA", "select ki_schluessel_holen('claude_api')", [], /Nur für die Automatik/);
+  await fehlt("claude", "select ki_schluessel_setzen('claude_api', 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz')", [], /Nur für Admins/);
+  await fehlt("admin", "update ki_einstellungen set anbieter = 'hack'", [], /check constraint/);
+  await als("admin", "select ki_schluessel_loeschen('claude_api')");
+  assert.equal((await db.query("select count(*)::int c from vault.secrets")).rows[0].c, 0);
+  assert.equal((await als("claude", "select anbieter from ki_einstellungen")).rows[0].anbieter, "cli");  // ohne Schlüssel zurück zu Claude Code
 });
 
 console.log(`\nAlle ${n} Tests bestanden.`);

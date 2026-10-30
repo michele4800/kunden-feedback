@@ -434,6 +434,81 @@ begin
   end if;
 end $$;
 
+-- ---------- KI-Anbieter der Automatik (seit Version 5) ----------
+-- Welche KI der Wächter nutzt: Claude Code auf dem PC (cli), Claude-API oder ChatGPT-API. Pflegt der Admin im Dashboard.
+create table if not exists public.ki_einstellungen (
+  id            boolean primary key default true check (id),   -- genau eine Zeile
+  anbieter      text not null default 'cli' check (anbieter in ('cli', 'claude_api', 'openai_api')),
+  modell_claude text not null default 'claude-sonnet-5-5' check (modell_claude ~ '^[A-Za-z0-9._:-]{1,100}$'),
+  modell_openai text not null default 'gpt-5' check (modell_openai ~ '^[A-Za-z0-9._:-]{1,100}$'),
+  geaendert_am  timestamptz not null default now()
+);
+insert into public.ki_einstellungen (id) values (true) on conflict do nothing;
+
+-- API-Schlüssel liegen verschlüsselt im Supabase Vault. Hier steht nur, DASS einer da ist (und seine letzten 4 Zeichen).
+create table if not exists public.ki_schluessel (
+  anbieter     text primary key check (anbieter in ('claude_api', 'openai_api')),
+  secret_id    uuid not null,
+  endung       text not null default '' check (length(endung) <= 4),
+  geaendert_am timestamptz not null default now()
+);
+
+-- Die Automatik = Agentur-Mitglied, das KEIN Admin ist. Nur sie bekommt Schlüssel im Klartext – nie ein Browser des Admins.
+create or replace function public.ist_automatik() returns boolean
+  language sql stable security definer set search_path = public as
+$$ select not public.ist_admin() and exists (select 1 from public.mitglieder m where m.user_id = auth.uid() and m.rolle = 'agentur') $$;
+
+create or replace function public.ki_schluessel_setzen(p_anbieter text, p_schluessel text) returns void
+  language plpgsql security definer set search_path = public as
+$$ declare alt uuid;
+begin
+  if not public.ist_admin() then raise exception 'Nur für Admins'; end if;
+  if p_anbieter not in ('claude_api', 'openai_api') then raise exception 'Unbekannter Anbieter'; end if;
+  p_schluessel := btrim(coalesce(p_schluessel, ''));
+  if p_schluessel !~ '^[A-Za-z0-9_-]+$' or length(p_schluessel) not between 20 and 300 then raise exception 'Der Schlüssel sieht nicht gültig aus'; end if;
+  select secret_id into alt from public.ki_schluessel where anbieter = p_anbieter;
+  if alt is null then
+    alt := vault.create_secret(p_schluessel, 'kf_ki_' || p_anbieter || '_' || substr(md5(random()::text), 1, 8), 'KI-Schlüssel der Automatik');
+  else
+    perform vault.update_secret(alt, p_schluessel);
+  end if;
+  insert into public.ki_schluessel (anbieter, secret_id, endung, geaendert_am) values (p_anbieter, alt, right(p_schluessel, 4), now())
+    on conflict (anbieter) do update set secret_id = excluded.secret_id, endung = excluded.endung, geaendert_am = now();
+end $$;
+
+create or replace function public.ki_schluessel_loeschen(p_anbieter text) returns void
+  language plpgsql security definer set search_path = public as
+$$ declare alt uuid;
+begin
+  if not public.ist_admin() then raise exception 'Nur für Admins'; end if;
+  delete from public.ki_schluessel where anbieter = p_anbieter returning secret_id into alt;
+  if alt is not null then delete from vault.secrets where id = alt; end if;
+  update public.ki_einstellungen set anbieter = 'cli', geaendert_am = now() where anbieter = p_anbieter;  -- ohne Schlüssel zurück zu Claude Code
+end $$;
+
+create or replace function public.ki_schluessel_holen(p_anbieter text) returns text
+  language plpgsql stable security definer set search_path = public as
+$$ declare s text;
+begin
+  if not public.ist_automatik() then raise exception 'Nur für die Automatik'; end if;
+  select d.decrypted_secret into s from public.ki_schluessel k join vault.decrypted_secrets d on d.id = k.secret_id where k.anbieter = p_anbieter;
+  return s;
+end $$;
+
+alter table public.ki_einstellungen enable row level security;
+alter table public.ki_schluessel    enable row level security;
+revoke all on public.ki_einstellungen, public.ki_schluessel from public, anon, authenticated;
+grant select, update on public.ki_einstellungen to authenticated;
+grant select on public.ki_schluessel to authenticated;
+drop policy if exists ki_einstellungen_lesen on public.ki_einstellungen;
+create policy ki_einstellungen_lesen on public.ki_einstellungen for select to authenticated using (public.ist_admin() or public.ist_automatik());
+drop policy if exists ki_einstellungen_aendern on public.ki_einstellungen;
+create policy ki_einstellungen_aendern on public.ki_einstellungen for update to authenticated using (public.ist_admin()) with check (public.ist_admin());
+drop policy if exists ki_schluessel_lesen on public.ki_schluessel;
+create policy ki_schluessel_lesen on public.ki_schluessel for select to authenticated using (public.ist_admin());
+revoke all on function public.ist_automatik(), public.ki_schluessel_setzen(text, text), public.ki_schluessel_loeschen(text), public.ki_schluessel_holen(text) from public, anon;
+grant execute on function public.ist_automatik(), public.ki_schluessel_setzen(text, text), public.ki_schluessel_loeschen(text), public.ki_schluessel_holen(text) to authenticated;
+
 -- ---------- Live-Synchronisierung (Supabase Realtime) ----------
 do $$
 begin

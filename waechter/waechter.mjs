@@ -14,6 +14,7 @@ import { ansichten, seitePfad } from "./ansicht.mjs";
 import { veroeffentlichen, hatZiel } from "./ziele/index.mjs";
 import { inhalteAnwenden, heuteBerlin } from "./inhalte.mjs";
 import { einrichten } from "./einrichten.mjs";
+import { kiApi } from "./ki.mjs";
 import os from "node:os";
 import { readFileSync, existsSync, writeFileSync, appendFileSync, mkdirSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -44,7 +45,18 @@ const MAX_PRO_TAG = KONF.max_pro_tag || 20;
 const CLAUDE = ENV.CLAUDE_BEFEHL || "claude";
 const ZAEHLER = path.join(HIER, ".heute.json");
 const MERK = path.join(HIER, ".ziele");  // je Projekt: Stand des Servers (SFTP) und „Veröffentlichen nachholen“
-const claude = (prompt, o) => claudeRoh(prompt, { ...o, befehl: CLAUDE, maxMinuten: KONF.max_minuten || 30 });
+// KI-Anbieter laut Dashboard: Claude Code auf diesem PC (cli), Claude-API oder ChatGPT-API. Ohne Einstellung bleibt es bei cli.
+const ANBIETER = { cli: "Claude Code", claude_api: "Claude-API", openai_api: "ChatGPT-API" };
+let letzterAnbieter = "";
+async function claude(prompt, o) {
+  const { data: e, error } = await sb.from("ki_einstellungen").select("*").maybeSingle();
+  const wahl = (!error && e && e.anbieter) || "cli";
+  if (wahl !== letzterAnbieter) { log(`KI-Anbieter: ${ANBIETER[wahl] || wahl}${wahl === "cli" ? "" : ` (${wahl === "claude_api" ? e.modell_claude : e.modell_openai})`}`); letzterAnbieter = wahl; }
+  if (wahl === "cli") return claudeRoh(prompt, { ...o, befehl: CLAUDE, maxMinuten: KONF.max_minuten || 30 });
+  const schluessel = ok(await sb.rpc("ki_schluessel_holen", { p_anbieter: wahl }));
+  if (!schluessel) throw new Error(`Für ${ANBIETER[wahl]} ist im Dashboard kein API-Schlüssel hinterlegt`);
+  return kiApi(prompt, { ...o, maxMinuten: KONF.max_minuten || 30, anbieter: wahl, modell: wahl === "claude_api" ? e.modell_claude : e.modell_openai, schluessel });
+}
 
 const sb = createClient(ENV.KF_URL, ENV.KF_SCHLUESSEL, { auth: { persistSession: false, autoRefreshToken: true } });
 const LOGBUCH = path.join(HIER, "waechter.log");
@@ -143,7 +155,8 @@ async function inhalteVeroeffentlichen(p, projekt) {
       bildHolen: async pfad => Buffer.from(await ok(await sb.storage.from("anhaenge").download(pfad)).arrayBuffer()),
       basisUrl: projekt.live_url || p.vorschau_url || projekt.vorschau_url || "", titel: projekt.name, heute,
       // Seiten werden auf der Vorschau bearbeitet: dort liegen die Quelldateien so, wie sie im Git stehen
-      basisAdressen: [projekt.vorschau_url || p.vorschau_url || projekt.live_url], projektId: projekt.id });
+      basisAdressen: [projekt.vorschau_url || p.vorschau_url || projekt.live_url], projektId: projekt.id,
+      formularZiel: ENV.KF_URL.replace(/\/$/, "") + "/functions/v1/formular", slug: projekt.slug });
     bauen(p);
   } catch (e) {
     zuruecksetzen(p);

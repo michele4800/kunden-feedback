@@ -75,6 +75,15 @@
       },
       async projektSpeichern(id, patch) { return ok(await sb.from("projekte").update(patch).eq("id", id).select().single()); },
       async zuruecknehmen(id) { ok(await sb.from("veroeffentlichungen").update({ zuruecknehmen: "angefragt" }).eq("id", id)); },
+      // KI-Anbieter der Automatik (nur Admins). Liefert nur, OB ein Schlüssel hinterlegt ist – nie den Schlüssel selbst.
+      async kiAnbieter() {
+        const [e, schluessel] = await Promise.all([sb.from("ki_einstellungen").select("*").maybeSingle(),
+          sb.from("ki_schluessel").select("anbieter, endung, geaendert_am")].map(p => p.then(ok)));
+        return { einstellungen: e || { anbieter: "cli", modell_claude: "claude-sonnet-5-5", modell_openai: "gpt-5" }, schluessel };
+      },
+      async kiAnbieterSpeichern(patch) { ok(await sb.from("ki_einstellungen").update({ ...patch, geaendert_am: new Date().toISOString() }).eq("id", true)); },
+      async kiSchluesselSetzen(anbieter, schluessel) { ok(await sb.rpc("ki_schluessel_setzen", { p_anbieter: anbieter, p_schluessel: schluessel })); },
+      async kiSchluesselLoeschen(anbieter) { ok(await sb.rpc("ki_schluessel_loeschen", { p_anbieter: anbieter })); },
       // Kunden und Zugänge pflegen (Edge Function kunden-verwalten, nur Admins): anlegen, zugaenge, zugang, passwort, aendern, entfernen
       async verwalten(aktion, daten = {}) {
         const { data, error } = await sb.functions.invoke("kunden-verwalten", { body: { ...daten, aktion, domain: k.benutzer_domain || "kunden.example.com" } });
@@ -212,6 +221,23 @@
       },
       async projektSpeichern(id, patch) { const d = daten(), p = d.projekte.find(x => x.id === id); Object.assign(p, patch); schreiben(d); return p; },
       async zuruecknehmen(id) { const d = daten(), v = d.veroeffentlichungen.find(x => x.id === id); v.zuruecknehmen = "angefragt"; schreiben(d); },
+      async kiAnbieter() {
+        const k = daten().ki || {};
+        return { einstellungen: k.einstellungen || { anbieter: "cli", modell_claude: "claude-sonnet-5-5", modell_openai: "gpt-5" }, schluessel: k.schluessel || [] };
+      },
+      async kiAnbieterSpeichern(patch) { const d = daten(); d.ki = { ...(d.ki || {}), einstellungen: { ...(await this.kiAnbieter()).einstellungen, ...patch } }; schreiben(d); },
+      async kiSchluesselSetzen(anbieter, s) {
+        s = String(s || "").trim();
+        if (!/^[A-Za-z0-9_-]{20,300}$/.test(s)) throw new Error("Der Schlüssel sieht nicht gültig aus");
+        const d = daten(), k = d.ki = d.ki || {};
+        k.schluessel = [...(k.schluessel || []).filter(x => x.anbieter !== anbieter), { anbieter, endung: s.slice(-4), geaendert_am: jetzt() }]; schreiben(d);
+      },
+      async kiSchluesselLoeschen(anbieter) {
+        const d = daten(), k = d.ki = d.ki || {};
+        k.schluessel = (k.schluessel || []).filter(x => x.anbieter !== anbieter);
+        if (k.einstellungen && k.einstellungen.anbieter === anbieter) k.einstellungen.anbieter = "cli";
+        schreiben(d);
+      },
       async verwalten(aktion, x = {}) {
         const d = daten(); d.zugaenge = d.zugaenge || [];
         const pw = () => {

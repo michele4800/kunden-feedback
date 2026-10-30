@@ -177,6 +177,14 @@ npm run waechter
   Runde erneut und zeigt den Fehler im Dashboard. **Zurücknehmen** im Dashboard: der Wächter macht den Commit rückgängig, baut neu
   und veröffentlicht den Stand davor.
 
+**KI wählen** (Dashboard → Reiter „KI“): Claude Code auf deinem PC (Standard, über dein Abo), **Claude-API** oder **ChatGPT-API**
+(Abrechnung pro Nutzung). Für die APIs trägst du dort den Schlüssel ein. Er liegt verschlüsselt im Supabase Vault. Nur der
+Wächter-Login (Agentur, kein Admin) kann ihn über `ki_schluessel_holen` lesen. Das Dashboard zeigt nur die letzten 4 Zeichen.
+Die Umstellung gilt ab dem nächsten Wunsch, ohne Neustart. Wird der Schlüssel des gewählten Anbieters gelöscht, nutzt der
+Wächter wieder Claude Code. Im API-Betrieb bekommt die KI dieselben Grenzen wie Claude Code: nur der Projektordner (ohne `.git`),
+Lesen/Suchen/Schreiben, der Bau-Befehl und die Kostengrenze `max_budget_usd`, die nach Token-Preisen gerechnet wird
+(`waechter/ki.mjs`).
+
 **Sicherheit**
 - Der Wächter meldet sich als normaler Agentur-Benutzer an – die Datenbankregeln gelten auch für ihn.
 - Claude Code läuft nur im Projektordner, nur mit Lesen/Bearbeiten und dem Bau-Befehl, ohne Internet-Werkzeuge, ohne MCP,
