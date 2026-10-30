@@ -53,7 +53,7 @@ async function claude(prompt, o) {
   const { data: e, error } = await sb.from("ki_einstellungen").select("*").maybeSingle();
   const wahl = (!error && e && e.anbieter) || "cli";
   if (wahl !== letzterAnbieter) { log(`KI-Anbieter: ${ANBIETER[wahl] || wahl}${wahl === "cli" ? "" : ` (${wahl === "claude_api" ? e.modell_claude : e.modell_openai})`}`); letzterAnbieter = wahl; }
-  if (wahl === "cli") return claudeRoh(prompt, { ...o, befehl: CLAUDE, maxMinuten: KONF.max_minuten || 30 });
+  if (wahl === "cli") return claudeRoh(prompt, { ...o, befehl: CLAUDE, maxMinuten: KONF.max_minuten || 30, modell: o.schnell ? "sonnet" : "" });
   const schluessel = ok(await sb.rpc("ki_schluessel_holen", { p_anbieter: wahl }));
   if (!schluessel) throw new Error(`Für ${ANBIETER[wahl]} ist im Dashboard kein API-Schlüssel hinterlegt`);
   return kiApi(prompt, { ...o, maxMinuten: KONF.max_minuten || 30, anbieter: wahl, modell: wahl === "claude_api" ? e.modell_claude : e.modell_openai, schluessel });
@@ -103,6 +103,45 @@ function geschuetztBeruehrt(p) {
   return geaendert.filter(d => (p.geschuetzt || []).some(g => d === g || d.startsWith(g)));
 }
 const zuruecksetzen = (p) => { git(p.ordner, "reset", "--hard", "-q"); git(p.ordner, "clean", "-fdq"); };
+
+// ---------- Wie lange Durchläufe wirklich dauern (für ehrliche Zeitangaben) ----------
+const DAUER = path.join(MERK, "dauer.json");
+const dauerListe = () => { try { return JSON.parse(readFileSync(DAUER, "utf8")); } catch (e) { return []; } };
+function dauerMerken(minuten) {
+  mkdirSync(MERK, { recursive: true });
+  writeFileSync(DAUER, JSON.stringify([...dauerListe(), Math.round(minuten * 10) / 10].slice(-20)));
+}
+const dauerHinweis = () => {
+  const l = dauerListe();
+  return l.length ? `Zum Vergleich – so viele Minuten dauerten die letzten Durchläufe der Automatik insgesamt (inkl. Prüfen und Veröffentlichen): ${l.slice(-10).join(", ")}.`
+    : "Die Automatik ist schnell: kleine Änderungen dauern insgesamt meist 2–5 Minuten, größere selten mehr als 15.";
+};
+
+// ---------- Ist die Änderung schon auf der Website zu sehen? ----------
+// Vergleicht die geänderten Dateien (seit <basis>) auf der Vorschau-Adresse Byte für Byte mit dem Commit.
+// SFTP lädt direkt hoch – dort ist nach dem Hochladen alles sichtbar. GitHub Pages braucht meist 1–2 Minuten.
+async function sichtbarAbwarten(p, basis, maxMinuten = 10) {
+  if (!p.veroeffentlichen || !p.vorschau_url) return true;
+  const dateien = git(p.ordner, "diff", "--name-only", "--diff-filter=AM", basis, "HEAD").split("\n")
+    .filter(f => /\.(html|css|js|json|svg|webp|png|jpe?g)$/i.test(f)).slice(0, 8);
+  if (!dateien.length) return true;
+  const soll = new Map(dateien.map(f => [f, execFileSync("git", ["show", `HEAD:${f}`], { cwd: p.ordner, maxBuffer: 50e6 })]));
+  const ende = Date.now() + maxMinuten * 60000;
+  while (Date.now() < ende) {
+    const offen = [];
+    for (const [f, inhalt] of soll) {
+      try {
+        const r = await fetch(`${p.vorschau_url}${f.split("/").map(encodeURIComponent).join("/")}?kf=${Date.now()}`, { cache: "no-store" });
+        if (!r.ok || !Buffer.from(await r.arrayBuffer()).equals(inhalt)) offen.push(f);
+      } catch (e) { offen.push(f); }
+    }
+    if (!offen.length) return true;
+    for (const f of [...soll.keys()]) if (!offen.includes(f)) soll.delete(f);
+    await new Promise(r => setTimeout(r, 10000));
+  }
+  log(`[${p.slug}] nach ${maxMinuten} Min. noch nicht sichtbar: ${[...soll.keys()].join(", ")}`);
+  return false;
+}
 
 // ---------- Datenbank-Helfer ----------
 const aendern = (id, patch) => sb.from("wuensche").update(patch).eq("id", id).then(ok);
@@ -250,6 +289,7 @@ async function umsetzen(p, projekt, modus, ws, namen, meineId) {
     .in("id", ws.map(w => w.id)).eq("status", "offen").select("id")).map(r => r.id));
   ws = ws.filter(w => geholt.has(w.id));
   if (!ws.length) return;
+  const beginn = Date.now();
   const kurz = ws[0].id.slice(0, 8);
   const nrVon = new Map(ws.map((w, i) => [w.id, i + 1]));
   log(`[${p.slug}] ${ws.length > 1 ? `Paket ${kurz} mit ${ws.length} Wünschen` : `Wunsch ${kurz}`}: ${ws.map(w => w.text.slice(0, 40)).join(" | ").slice(0, 160)}`);
@@ -270,9 +310,10 @@ async function umsetzen(p, projekt, modus, ws, namen, meineId) {
   // 1. Aufwand schätzen (nur lesen)
   let s;
   try {
-    s = await claude(`Schätze, wie viele Minuten die Umsetzung ${ws.length > 1 ? "aller dieser Wünsche zusammen" : "dieses Wunsches"} in diesem Projekt dauert (inkl. Prüfen).
+    s = await claude(`Schätze, wie viele Minuten die Automatik für ${ws.length > 1 ? "alle diese Wünsche zusammen" : "diesen Wunsch"} in diesem Projekt braucht (inkl. Prüfen und Veröffentlichen).
+Gemeint ist die Zeit der Automatik, nicht die eines Menschen. ${dauerHinweis()} Sieh dir nur kurz die betroffene Stelle an, sei zügig.
 Fehlt bei einem Wunsch eine Information, trage ihn mit nr und Frage in "rueckfragen" ein; sonst bleibt die Liste leer.\n\n${texte()}`,
-      { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 1, systemzusatz: SYSTEM });
+      { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 1, systemzusatz: SYSTEM, schnell: true });
   } catch (e) {
     leeren();
     for (const w of ws) await anAgentur(w, `Schätzung fehlgeschlagen: ${e.message}`);
@@ -367,12 +408,21 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
     heuteZaehlen(1, p.slug);
   }
 
+  // Erst „erledigt“, wenn der Kunde die Änderung auf der Website auch sieht
+  let sichtbar = true;
+  if (fertig.length && !nichtsGeaendert && modus === "direkt" && geliefert && hatZiel(p)) {
+    for (const d of fertig) await aendern(d.w.id, { fortschritt: "Wird veröffentlicht – gleich auf der Website zu sehen", fertig_bis: new Date(Date.now() + 2 * 60000).toISOString() });
+    sichtbar = await sichtbarAbwarten(p, "HEAD~1");
+  }
+  if (fertig.length && !nichtsGeaendert) dauerMerken((Date.now() - beginn) / 60000);
+
   // Status je Wunsch
   for (const d of aktiv) {
     const e = erg.get(nrVon.get(d.w.id)) || { ergebnis: "fehler", zusammenfassung: fehler || "keine Antwort", frage: "" };
     if (fertig.includes(d) && !nichtsGeaendert) {
-      if (modus === "direkt") await aendern(d.w.id, { status: "erledigt", fertig_bis: null,
-        fortschritt: !geliefert ? "Umgesetzt – wird gleich veröffentlicht" : hatZiel(p) ? "Umgesetzt – auf der Website in ca. 1–2 Min. sichtbar" : "Umgesetzt" });
+      if (modus === "direkt" && (!geliefert || !sichtbar)) await aendern(d.w.id, { status: "in_arbeit", bearbeiter: "Agentur", fertig_bis: null,
+        fortschritt: !geliefert ? "Umgesetzt – das Veröffentlichen hakt, die Agentur kümmert sich" : "Umgesetzt – noch nicht auf der Website zu sehen, die Agentur prüft das" });
+      else if (modus === "direkt") await aendern(d.w.id, { status: "erledigt", fertig_bis: null, fortschritt: hatZiel(p) ? "Jetzt auf der Website zu sehen" : "Umgesetzt" });
       else await aendern(d.w.id, { status: "zur_freigabe", details: { ...(d.w.details || {}), zweig }, fortschritt: "Umgesetzt – wartet auf Freigabe durch die Agentur", fertig_bis: null });
       await kommentieren(d.w.id, e.zusammenfassung);
     } else if (e.ergebnis === "rueckfrage" || (e.ergebnis === "erledigt" && nichtsGeaendert)) {
@@ -401,7 +451,10 @@ async function freigabenVeroeffentlichen(p, projekt, liste) {
       if (git(p.ordner, "rev-parse", "HEAD") === vorMerge) throw new Error("Zweig enthält nichts Neues");
       const geliefert = (await ausliefern(p, projekt, "freigabe", dazu.map(w => w.text.replace(/\s+/g, " ").slice(0, 60)).join(" | ").slice(0, 300))).ok;
       git(p.ordner, "branch", "-d", zweig);
-      for (const w of dazu) await aendern(w.id, { status: "erledigt", fortschritt: geliefert ? "Veröffentlicht – auf der Website in ca. 1–2 Min. sichtbar" : "Freigegeben – wird gleich veröffentlicht" });
+      if (geliefert) for (const w of dazu) await aendern(w.id, { fortschritt: "Wird veröffentlicht – gleich auf der Website zu sehen" });
+      const sichtbar = geliefert && await sichtbarAbwarten(p, vorMerge);
+      for (const w of dazu) await aendern(w.id, sichtbar ? { status: "erledigt", fortschritt: "Jetzt auf der Website zu sehen" }
+        : { fortschritt: geliefert ? "Freigegeben – noch nicht auf der Website zu sehen, die Agentur prüft das" : "Freigegeben – das Veröffentlichen hakt, die Agentur kümmert sich" });
       log(`[${p.slug}] ${zweig} veröffentlicht (${dazu.length} Wunsch/Wünsche)`);
     } catch (e) {
       try { git(p.ordner, "merge", "--abort"); } catch (e2) {}

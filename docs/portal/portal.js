@@ -180,12 +180,12 @@
       : w.fortschritt ? `<div class="arbeit">${esc(w.fortschritt)}</div>` : "";
     const stand = KF.schritte(w, "schritte");
     const seite = w.seite_url ? `<a href="${esc(w.seite_url)}" target="_blank" rel="noopener">${esc(w.seite_titel || w.seite_url)}<span class="nur-vorleser"> (neues Fenster)</span></a>` : "allgemein";
-    return `<li class="w" id="w-${w.id}">
-      <div class="w-kopf"><span class="status ${w.status}">${esc(KF.STATUS[w.status] || w.status)}${w.status === "zur_freigabe" && w.freigegeben ? " – freigegeben" : ""}</span>
+    const zu = ["erledigt", "abgelehnt"].includes(w.status);
+    const kopf = `<div class="w-kopf"><span class="status ${w.status}">${esc(KF.STATUS[w.status] || w.status)}${w.status === "zur_freigabe" && w.freigegeben ? " – freigegeben" : ""}</span>
         <span class="meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}</span></div>
       ${w.art && w.art !== "sonstiges" ? `<span class="etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="etikett wichtig">Wichtig</span>` : w.prioritaet === 3 ? `<span class="etikett">Kann warten</span>` : ""}${(w.details || {}).paket_anzahl > 1 ? `<span class="etikett">Paket ${+w.details.paket_nr}/${+w.details.paket_anzahl}</span>` : ""}
-      <p class="text">${esc(w.text)}</p>
-      ${(w.details || {}).alter_text != null ? `<div class="box"><b>Textänderung</b><br><del>${esc(w.details.alter_text)}</del><br>→ <ins>${esc(w.details.neuer_text)}</ins></div>` : ""}
+      ${zu ? `<span class="auf">Details</span>` : ""}<p class="text">${esc(w.text)}</p>`;
+    const rest = `${(w.details || {}).alter_text != null ? `<div class="box"><b>Textänderung</b><br><del>${esc(w.details.alter_text)}</del><br>→ <ins>${esc(w.details.neuer_text)}</ins></div>` : ""}
       ${(w.details || {}).verschiebung ? `<div class="box"><b>Verschiebung</b><br>${esc(KF.verschiebungText(w.details.verschiebung))}</div>` : ""}
       ${(w.details || {}).farbe ? `<div class="box"><span class="tupfer" style="background:${esc(w.details.farbe)}"></span>Farbe ${esc(w.details.farbe)}</div>` : ""}
       ${(w.anhaenge || []).length ? `<div class="fotos">${w.anhaenge.map(a => `<a class="foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
@@ -201,9 +201,13 @@
       </div>` : ""}
       <div class="verlauf">${ks.filter(k => !(w.status === "rueckfrage" && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}</b> <small>${esc(KF.zeit(k.erstellt_am))}</small><br>${esc(k.text)}</div>`).join("")}
         ${w.status === "rueckfrage" ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="nur-vorleser" for="k-${w.id}">Antwort</label>
-          <input id="k-${w.id}" type="text" maxlength="5000" placeholder="Antworten …"><button class="btn klein">Senden</button></form>`}</div>
-    </li>`;
+          <input id="k-${w.id}" type="text" maxlength="5000" placeholder="Antworten …"><button class="btn klein">Senden</button></form>`}</div>`;
+    // Erledigte Wünsche eingeklappt; Aufgeklapptes bleibt beim Neuzeichnen offen
+    return zu ? `<li class="w zu" id="w-${w.id}"><details data-id="${w.id}"${aufgeklappt.has(w.id) ? " open" : ""}><summary>${kopf}</summary>${rest}</details></li>`
+      : `<li class="w" id="w-${w.id}">${kopf}${rest}</li>`;
   }
+  const aufgeklappt = new Set();
+  document.addEventListener("toggle", e => { const el = e.target; if (el.tagName === "DETAILS" && el.closest(".zu")) el.open ? aufgeklappt.add(el.dataset.id) : aufgeklappt.delete(el.dataset.id); }, true);
   // Rückfrage der Automatik: Vorschläge zum Anklicken und immer ein freies Antwortfeld
   function antwortBox(w) {
     const rf = (w.details || {}).rueckfrage || {}, opt = rf.optionen || [];

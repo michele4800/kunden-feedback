@@ -172,6 +172,10 @@
 .kf-liste{list-style:none;margin:0;padding:0;display:grid;gap:10px}
 .kf-w{border:1px solid #e3e1da;border-radius:10px;padding:12px}
 .kf-w p{margin:6px 0 0;white-space:pre-wrap;word-break:break-word}
+.kf-zu{padding:8px 12px;background:#fafaf8}.kf-zu summary{cursor:pointer;list-style:none}.kf-zu summary::-webkit-details-marker{display:none}
+.kf-zu summary p{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#57534e}.kf-zu details[open] summary p{white-space:pre-wrap;color:inherit}
+.kf-auf{float:right;font-size:13px;color:#2f6f8a;text-decoration:underline}.kf-zu details[open] .kf-auf{display:none}
+.kf-w .kf-neu{margin:10px 0 0;font-size:14px}
 .kf-status{display:inline-block;font-size:12px;font-weight:700;border-radius:999px;padding:2px 9px;background:#ecebe6}
 .kf-status.in_arbeit{background:#dbeafe;color:#1e3a8a}.kf-status.rueckfrage{background:#fde68a;color:#78350f}
 .kf-status.zur_freigabe{background:#e9d5ff;color:#581c87}.kf-status.erledigt{background:#d1fae5;color:#065f46}.kf-status.abgelehnt{background:#fee2e2;color:#7f1d1d}
@@ -356,14 +360,21 @@
       </form>`;
     }
 
+    // Erledigte Wünsche sind eingeklappt; was der Kunde aufklappt, bleibt beim Neuzeichnen offen
+    const aufgeklappt = new Set();
+    document.addEventListener("toggle", e => { const el = e.target; if (el.tagName === "DETAILS" && el.closest(".kf-zu")) el.open ? aufgeklappt.add(el.dataset.id) : aufgeklappt.delete(el.dataset.id); }, true);
     function karte(w, nr, ks, ichId) {
       const d = w.details || {}, meins = w.autor === ichId;
       const arbeit = w.status === "in_arbeit"
         ? `<div class="kf-arbeit">${esc(w.bearbeiter || "Agentur")} arbeitet daran${w.fertig_bis ? " – " + esc(KF.restzeit(w.fertig_bis)) : ""}${w.fortschritt ? `<br>${esc(w.fortschritt)}` : ""}</div>`
         : w.fortschritt ? `<div class="kf-arbeit">${esc(w.fortschritt)}</div>` : "";
-      return `<li class="kf-w"><span class="kf-status ${w.status}">${w.stelle ? nr + " · " : ""}${esc(KF.STATUS[w.status] || w.status)}</span>
-        ${w.art && w.art !== "sonstiges" ? `<span class="kf-etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="kf-etikett wichtig">Wichtig</span>` : ""}${d.paket_anzahl > 1 ? `<span class="kf-etikett">Paket ${+d.paket_nr}/${+d.paket_anzahl}</span>` : ""}
-        ${w.text ? `<p>${esc(w.text)}</p>` : ""}
+      // Erst nach dem Laden dieser Seite fertig geworden → angezeigt wird noch die alte Fassung
+      const frisch = w.status === "erledigt" && Date.parse(w.geaendert_am) > GELADEN - 5000;
+      const zu = ["erledigt", "abgelehnt"].includes(w.status) && !frisch;
+      const kopf = `<span class="kf-status ${w.status}">${w.stelle ? nr + " · " : ""}${esc(KF.STATUS[w.status] || w.status)}</span>
+        ${w.art && w.art !== "sonstiges" ? `<span class="kf-etikett">${esc(KF.ARTEN[w.art] || w.art)}</span>` : ""}${w.prioritaet === 1 ? `<span class="kf-etikett wichtig">Wichtig</span>` : ""}${d.paket_anzahl > 1 ? `<span class="kf-etikett">Paket ${+d.paket_nr}/${+d.paket_anzahl}</span>` : ""}${zu ? `<span class="kf-auf">Details</span>` : ""}
+        ${w.text ? `<p>${esc(w.text)}</p>` : ""}`;
+      const rest = `${frisch ? `<div class="kf-neu" role="status"><span>Fertig! Ladet die Seite neu, um die Änderung zu sehen.</span><button type="button" class="kf-btn klein" data-aktion="neu-laden">Seite neu laden</button></div>` : ""}
         ${d.alter_text != null ? `<div class="kf-box"><del>${esc(d.alter_text)}</del><br>→ <ins>${esc(d.neuer_text)}</ins></div>` : ""}
         ${d.verschiebung ? `<div class="kf-box"><b>Verschiebung:</b> ${esc(KF.verschiebungText(d.verschiebung))}</div>` : ""}
         ${d.farbe ? `<div class="kf-box"><span class="kf-tupfer" style="background:${esc(d.farbe)}"></span>${esc(d.farbe)}</div>` : ""}
@@ -372,7 +383,8 @@
         <div class="kf-meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}${meins && w.status === "offen" ? ` · <button type="button" class="kf-btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen</button>` : ""}</div>
         <div class="kf-k">${ks.filter(k => !(w.status === "rueckfrage" && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}:</b> ${esc(k.text)}</div>`).join("")}
           ${w.status === "rueckfrage" ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="kf-nur" for="kf-k-${w.id}">Antwort zu diesem Wunsch</label>
-            <input id="kf-k-${w.id}" maxlength="5000" placeholder="Antworten…"><button class="kf-btn klein">Senden</button></form>`}</div></li>`;
+            <input id="kf-k-${w.id}" maxlength="5000" placeholder="Antworten…"><button class="kf-btn klein">Senden</button></form>`}</div>`;
+      return zu ? `<li class="kf-w kf-zu"><details data-id="${w.id}"${aufgeklappt.has(w.id) ? " open" : ""}><summary>${kopf}</summary>${rest}</details></li>` : `<li class="kf-w">${kopf}${rest}</li>`;
     }
     // Rückfrage der Automatik: Vorschläge zum Antippen und immer ein freies Antwortfeld
     function antwortBox(w) {

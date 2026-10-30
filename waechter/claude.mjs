@@ -2,12 +2,13 @@
 import { spawn } from "node:child_process";
 
 // ---------- Claude Code ----------
-export function claude(prompt, { ordner, schema, werkzeuge, budget, systemzusatz, befehl = "claude", maxMinuten = 30 }) {
+export function claude(prompt, { ordner, schema, werkzeuge, budget, systemzusatz, befehl = "claude", maxMinuten = 30, modell = "" }) {
   const args = ["-p", "--output-format", "json", "--json-schema", JSON.stringify(schema),
     "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "project",
     "--no-session-persistence", "--max-budget-usd", String(budget),
     "--disallowedTools", "WebFetch", "WebSearch", "Agent", "Task",
     "--append-system-prompt", systemzusatz];
+  if (modell) args.push("--model", modell);
   if (werkzeuge.length) args.push("--allowedTools", ...werkzeuge);
   else args.push("--disallowedTools", "Bash", "Edit", "Write", "NotebookEdit");
   return new Promise((fertig, fehler) => {
@@ -53,7 +54,7 @@ Bei einer Textänderung gilt der neue Text wörtlich, so wie der Kunde ihn gesch
 const OPTIONEN = { type: "array", maxItems: 4, items: { type: "string" } };
 // minuten: für alle Wünsche zusammen; rueckfragen: nur für Wünsche, denen eine Information fehlt
 export const SCHEMA_SCHAETZUNG = { type: "object", additionalProperties: false, required: ["minuten", "rueckfragen"],
-  properties: { minuten: { type: "integer", minimum: 5, maximum: 600 },
+  properties: { minuten: { type: "integer", minimum: 1, maximum: 600 },
     rueckfragen: { type: "array", items: { type: "object", additionalProperties: false, required: ["nr", "frage", "optionen"],
       properties: { nr: { type: "integer", minimum: 1 }, frage: { type: "string" }, optionen: OPTIONEN } } } } };
 // Je Wunsch ein Ergebnis (nr wie im <wunsch nr>), dazu die Fotos, die auf die Website sollen
