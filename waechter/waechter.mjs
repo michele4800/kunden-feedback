@@ -146,6 +146,22 @@ async function sichtbarAbwarten(p, basis, maxMinuten = 10) {
 // ---------- Datenbank-Helfer ----------
 const aendern = (id, patch) => sb.from("wuensche").update(patch).eq("id", id).then(ok);
 const kommentieren = (wunsch_id, text) => sb.from("kommentare").insert({ wunsch_id, text: text.slice(0, 4900) }).then(ok);
+
+// Technische Probleme: erst ein zweiter Anlauf der Automatik, dann an die Agentur – immer mit Begründung für den Kunden
+async function abgeben(slug, w, grund) {
+  const versuche = ((w.details || {}).versuche || 0) + 1;
+  log(`[${slug}] ${w.id.slice(0, 8)} Versuch ${versuche} gescheitert: ${grund}`);
+  if (versuche < 2) {
+    await aendern(w.id, { status: "offen", bearbeiter: "", fertig_bis: null, details: { ...(w.details || {}), versuche }, fortschritt: "Zweiter Anlauf – geht gleich weiter" });
+    return;
+  }
+  const warum = grund.startsWith("Geschützte") ? "Dafür müsste das Bau-Werkzeug der Website geändert werden, und das ist aus Sicherheitsgründen gesperrt."
+    : grund.startsWith("Bau fehlgeschlagen") ? "Nach der Änderung ließ sich die Website nicht fehlerfrei bauen, deshalb wurde nichts veröffentlicht."
+    : /^(Schätzung fehlgeschlagen|keine Antwort|abgebrochen)/.test(grund) ? "Die Automatik ist bei diesem Wunsch zweimal an einem technischen Fehler gescheitert."
+    : grund;
+  await aendern(w.id, { status: "offen", bearbeiter: "Agentur", fertig_bis: null, details: { ...(w.details || {}), versuche }, fortschritt: "Wird von der Agentur übernommen" });
+  await kommentieren(w.id, `Das konnte die Automatik nicht allein umsetzen: ${warum} Die Agentur übernimmt den Wunsch.`);
+}
 // Rückfrage stellen; Antwortvorschläge liegen in details.rueckfrage und erscheinen beim Kunden als Knöpfe
 async function rueckfragen(w, { frage, optionen = [] }) {
   const opt = [...new Set((optionen || []).map(o => String(o).trim().slice(0, 120)).filter(Boolean))].slice(0, 4);
@@ -302,10 +318,7 @@ async function umsetzen(p, projekt, modus, ws, namen, meineId) {
   const alleFotos = daten.flatMap(d => d.fotos);
   const texte = (auswahl = daten) => auswahl.map(d => wunschText(d.w, d.verlauf, namen, d.fotos, nrVon.get(d.w.id))).join("\n\n");
   const leeren = () => rmSync(path.join(p.ordner, EINGANG), { recursive: true, force: true });
-  const anAgentur = async (w, grund) => {
-    await aendern(w.id, { status: "offen", bearbeiter: "Agentur", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null });
-    log(`[${p.slug}] ${w.id.slice(0, 8)} an Agentur: ${grund}`);
-  };
+  const gesperrtHinweis = p.geschuetzt?.length ? `\nGesperrt – nicht ändern und dort nichts anlegen: ${p.geschuetzt.join(", ")}. Löse alles in den Seiten-, Stil-, Skript- und Datendateien außerhalb davon.` : "";
 
   // 1. Aufwand schätzen (nur lesen)
   let s;
@@ -316,7 +329,7 @@ Fehlt bei einem Wunsch eine Information, trage ihn mit nr und Frage in "rueckfra
       { ordner: p.ordner, schema: SCHEMA_SCHAETZUNG, werkzeuge: ["Read", "Glob", "Grep"], budget: 1, systemzusatz: SYSTEM, schnell: true });
   } catch (e) {
     leeren();
-    for (const w of ws) await anAgentur(w, `Schätzung fehlgeschlagen: ${e.message}`);
+    for (const w of ws) await abgeben(p.slug, w, `Schätzung fehlgeschlagen: ${e.message}`);
     return;
   }
   const fragen = new Map((s.rueckfragen || []).filter(f => f.frage && ws[f.nr - 1]).map(f => [ws[f.nr - 1].id, f]));
@@ -347,7 +360,7 @@ Fehlt bei einem Wunsch eine Information, trage ihn mit nr und Frage in "rueckfra
     if ((w.details || {}).verschiebung && w.stelle) wunschbild.push(...await knipsen(w, "wunsch", w.details.verschiebung));
   }
   const fotoText = (liste, wann) => liste.length ? `\nBildschirmfotos ${wann} (Desktop und Handy; Dateiname -wN = Wunsch N; die rot gestrichelte Linie zeigt nur die vom Kunden markierte Stelle und ist nicht Teil der Seite) – sieh sie dir mit Read an:\n${liste.map(f => `- ${f}`).join("\n")}` : "";
-  const ergebnisAntwort = `Gib in "ergebnisse" für jeden Wunsch (nr) ein Ergebnis an.`;
+  const ergebnisAntwort = `Gib in "ergebnisse" für jeden Wunsch (nr) ein Ergebnis an.${gesperrtHinweis}`;
 
   // erg: nr → { ergebnis, zusammenfassung, frage }
   let erg = new Map(), fotosWahl = [];
@@ -382,6 +395,17 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
     } catch (e) { log(`[${p.slug}] ${kurz} Prüfrunde ${runde} fehlgeschlagen: ${e.message}`); break; }
     log(`[${p.slug}] ${kurz} Prüfrunde ${runde}: ${erledigt().length} von ${aktiv.length} erledigt`);
     if (git(p.ordner, "status", "--porcelain") + git(p.ordner, "diff") === stand) break;  // nichts nachgebessert → fertig
+  }
+
+  // Gesperrte Dateien angefasst: nur diese Änderungen zurücknehmen und einmal ohne sie lösen lassen
+  const gesperrt = geschuetztBeruehrt(p);
+  if (gesperrt.length && erledigt().length) {
+    log(`[${p.slug}] ${kurz} gesperrte Dateien zurückgenommen: ${gesperrt.join(", ")}`);
+    for (const f of gesperrt) { try { git(p.ordner, "checkout", "-q", "HEAD", "--", f); } catch (e) { rmSync(path.join(p.ordner, f), { recursive: true, force: true }); } }
+    try {
+      uebernehmen(await claude(`Deine Änderungen an ${gesperrt.join(", ")} wurden zurückgenommen, diese Dateien sind gesperrt. Setze ${erledigt().length > 1 ? "die Wünsche" : "den Wunsch"} jetzt ohne sie fertig um – die übrigen Änderungen sind noch da.${p.bauen ? ` Führe danach den Bau aus: ${p.bauen.join(" ")}` : ""} ${ergebnisAntwort}\n\n${texte(erledigt())}`,
+        { ordner: p.ordner, schema: SCHEMA_ERGEBNIS, werkzeuge, budget: KONF.max_budget_usd || 3, systemzusatz: SYSTEM }));
+    } catch (e) { log(`[${p.slug}] ${kurz} Nachbessern ohne gesperrte Dateien fehlgeschlagen: ${e.message}`); }
   }
   leeren();
 
@@ -431,8 +455,10 @@ ${ergebnisAntwort} Beschreibe in zusammenfassung nur, was auf den Fotos wirklich
     } else if (e.ergebnis === "rueckfrage" || (e.ergebnis === "erledigt" && nichtsGeaendert)) {
       await rueckfragen(d.w, e.frage ? e : { frage: "Ich konnte nichts finden, was ich ändern müsste. Könnt ihr genauer beschreiben, was anders sein soll?" });
     } else {
-      await anAgentur(d.w, fehler || e.zusammenfassung);
-      if (e.ergebnis === "nicht_moeglich") await kommentieren(d.w.id, e.zusammenfassung || "Diesen Wunsch schaut sich die Agentur persönlich an.");
+      if (e.ergebnis === "nicht_moeglich") {
+        await aendern(d.w.id, { status: "offen", bearbeiter: "Agentur", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null });
+        await kommentieren(d.w.id, e.zusammenfassung || "Diesen Wunsch schaut sich die Agentur persönlich an.");
+      } else await abgeben(p.slug, d.w, fehler || e.zusammenfassung || "keine Antwort");
     }
   }
 }
@@ -544,9 +570,8 @@ async function runde(meineId) {
       const unvollstaendig = paket && ws.length < (+kopf.details.paket_anzahl || 0) && Date.now() - Date.parse(kopf.erstellt_am) < 60000;
       // Bricht ein Durchlauf unerwartet ab, bleibt kein Wunsch ewig „in Arbeit“ hängen
       if (ws.length && !unvollstaendig) await umsetzen(p, projekt, modus, ws, namen, meineId).catch(async e => {
-        log(`[${slug}] ${ws[0].id.slice(0, 8)} abgebrochen: ${e.message}`);
-        await sb.from("wuensche").update({ bearbeiter: "Agentur", status: "offen", fortschritt: "Wird von der Agentur übernommen", fertig_bis: null })
-          .in("id", ws.map(w => w.id)).eq("status", "in_arbeit").eq("bearbeiter", NAME);
+        const haengend = ok(await sb.from("wuensche").select("*").in("id", ws.map(w => w.id)).eq("status", "in_arbeit").eq("bearbeiter", NAME));
+        for (const w of haengend) await abgeben(slug, w, `abgebrochen: ${e.message}`);
       });
       await lebenszeichen(projekt.id, "Bereit", slug);
     } catch (e) {
