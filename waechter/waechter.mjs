@@ -548,9 +548,13 @@ async function runde(meineId) {
       await freigabenVeroeffentlichen(p, projekt, liste);
 
       // Rückfragen, auf die der Kunde geantwortet hat, wieder einreihen
-      for (const w of liste.filter(w => w.status === "rueckfrage")) {
+      // … ebenso Wünsche bei der Agentur, auf die jemand antwortet: die Antwort ist der Auftrag, es noch einmal zu versuchen
+      for (const w of liste.filter(w => w.status === "rueckfrage" || (w.status === "offen" && w.bearbeiter === "Agentur"))) {
         const letzte = ok(await sb.from("kommentare").select("autor").eq("wunsch_id", w.id).order("erstellt_am", { ascending: false }).limit(1))[0];
-        if (letzte && letzte.autor !== meineId) { await aendern(w.id, { status: "offen", fortschritt: "Antwort erhalten – geht weiter" }); w.status = "offen"; }
+        if (!letzte || letzte.autor === meineId) continue;
+        const patch = { status: "offen", fortschritt: "Antwort erhalten – geht weiter" };
+        if (w.bearbeiter === "Agentur") Object.assign(patch, { bearbeiter: "", details: { ...(w.details || {}), versuche: 0 } });
+        await aendern(w.id, patch); Object.assign(w, patch);
       }
 
       // Wichtige Wünsche zuerst, sonst in der Reihenfolge des Eingangs
