@@ -382,15 +382,18 @@
         ${(w.anhaenge || []).length ? `<div class="kf-fotos">${w.anhaenge.map(a => `<a class="kf-foto" data-anhang="${esc(a.pfad)}" target="_blank" rel="noopener"><img alt="${esc(a.name)}"></a>`).join("")}</div>` : ""}
         ${KF.schritte(w, "kf-schritte")}${arbeit}
         <div class="kf-meta">${esc(namen[w.autor] || "")}, ${esc(KF.zeit(w.erstellt_am))}${meins && w.status === "offen" ? ` · <button type="button" class="kf-btn hell klein" data-aktion="loeschen" data-id="${w.id}">Löschen</button>` : ""}</div>
-        <div class="kf-k">${ks.filter(k => !(w.status === "rueckfrage" && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}:</b> ${esc(k.text)}</div>`).join("")}
-          ${w.status === "rueckfrage" ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="kf-nur" for="kf-k-${w.id}">Antwort zu diesem Wunsch</label>
+        <div class="kf-k">${ks.filter(k => !(fragtNoch(w) && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}:</b> ${esc(k.text)}</div>`).join("")}
+          ${fragtNoch(w) ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="kf-nur" for="kf-k-${w.id}">Antwort zu diesem Wunsch</label>
             <input id="kf-k-${w.id}" maxlength="5000" placeholder="Antworten…"><button class="kf-btn klein">Senden</button></form>`}</div>`;
       return zu ? `<li class="kf-w kf-eingeklappt"><details data-id="${w.id}"${aufgeklappt.has(w.id) ? " open" : ""}><summary>${kopf}</summary>${rest}</details></li>` : `<li class="kf-w">${kopf}${rest}</li>`;
     }
     // Rückfrage der Automatik: Vorschläge zum Antippen und immer ein freies Antwortfeld
+    // Beantwortete Rückfrage sofort ausblenden – nicht erst, wenn die Automatik den Status umstellt
+    const beantwortet = new Map();
+    const fragtNoch = w => w.status === "rueckfrage" && beantwortet.get(w.id) !== (((w.details || {}).rueckfrage || {}).frage || "");
     function antwortBox(w) {
       const rf = (w.details || {}).rueckfrage || {}, opt = rf.optionen || [];
-      return `<form class="kf-rf" data-form="kommentar" data-id="${w.id}">
+      return `<form class="kf-rf" data-form="kommentar" data-id="${w.id}" data-frage="${esc(rf.frage || "")}">
         <p class="kf-rf-titel" id="kf-rf-${w.id}">${esc(rf.frage || "Rückfrage")}</p>
         ${opt.length ? `<p class="kf-rf-hilfe">Antwort antippen oder selbst schreiben</p>` : ""}
         ${opt.length ? `<div class="kf-rf-opt" role="group" aria-labelledby="kf-rf-${w.id}">${opt.map(o => `<button type="submit" class="kf-btn hell klein" name="option" value="${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}
@@ -481,7 +484,10 @@
           const feld = f.querySelector("input, textarea"), opt = e.submitter && e.submitter.name === "option";
           const text = (opt ? e.submitter.value : feld.value).trim();
           if (!text) return;
-          await be.kommentarAnlegen(f.dataset.id, text); feld.value = ""; await zeichnen();
+          const rf = "frage" in f.dataset;
+          if (rf) { beantwortet.set(f.dataset.id, f.dataset.frage); f.hidden = true; }
+          try { await be.kommentarAnlegen(f.dataset.id, text); } catch (err) { if (rf) { beantwortet.delete(f.dataset.id); f.hidden = false; } throw err; }
+          feld.value = ""; await zeichnen();
         }
       } catch (err) {
         if (fehler) fehler.textContent = err.message; else alert(err.message);

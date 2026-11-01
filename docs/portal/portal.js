@@ -199,8 +199,8 @@
         <div><label for="p-${w.id}">Stand für den Kunden</label><input id="p-${w.id}" type="text" maxlength="500" data-feld="fortschritt" data-id="${w.id}" value="${esc(w.fortschritt)}"></div>
         ${w.status === "zur_freigabe" && !w.freigegeben ? `<div style="grid-column:1/-1"><button class="btn" data-aktion="freigeben" data-id="${w.id}">Umsetzung freigeben und veröffentlichen</button></div>` : ""}
       </div>` : ""}
-      <div class="verlauf">${ks.filter(k => !(w.status === "rueckfrage" && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}</b> <small>${esc(KF.zeit(k.erstellt_am))}</small><br>${esc(k.text)}</div>`).join("")}
-        ${w.status === "rueckfrage" ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="nur-vorleser" for="k-${w.id}">Antwort</label>
+      <div class="verlauf">${ks.filter(k => !(fragtNoch(w) && k.text === ((w.details || {}).rueckfrage || {}).frage)).map(k => `<div><b>${esc(namen[k.autor] || "")}</b> <small>${esc(KF.zeit(k.erstellt_am))}</small><br>${esc(k.text)}</div>`).join("")}
+        ${fragtNoch(w) ? antwortBox(w) : `<form data-form="kommentar" data-id="${w.id}"><label class="nur-vorleser" for="k-${w.id}">Antwort</label>
           <input id="k-${w.id}" type="text" maxlength="5000" placeholder="Antworten …"><button class="btn klein">Senden</button></form>`}</div>`;
     // Erledigte Wünsche eingeklappt; Aufgeklapptes bleibt beim Neuzeichnen offen
     return zu ? `<li class="w zu" id="w-${w.id}"><details data-id="${w.id}"${aufgeklappt.has(w.id) ? " open" : ""}><summary>${kopf}</summary>${rest}</details></li>`
@@ -209,9 +209,12 @@
   const aufgeklappt = new Set();
   document.addEventListener("toggle", e => { const el = e.target; if (el.tagName === "DETAILS" && el.closest(".zu")) el.open ? aufgeklappt.add(el.dataset.id) : aufgeklappt.delete(el.dataset.id); }, true);
   // Rückfrage der Automatik: Vorschläge zum Anklicken und immer ein freies Antwortfeld
+  // Beantwortete Rückfrage sofort ausblenden – nicht erst, wenn die Automatik den Status umstellt
+  const beantwortet = new Map();
+  const fragtNoch = w => w.status === "rueckfrage" && beantwortet.get(w.id) !== (((w.details || {}).rueckfrage || {}).frage || "");
   function antwortBox(w) {
     const rf = (w.details || {}).rueckfrage || {}, opt = rf.optionen || [];
-    return `<form class="rf" data-form="kommentar" data-id="${w.id}">
+    return `<form class="rf" data-form="kommentar" data-id="${w.id}" data-frage="${esc(rf.frage || "")}">
       <p class="rf-titel" id="rf-${w.id}">${esc(rf.frage || "Rückfrage")}</p>
         ${opt.length ? `<p class="rf-hilfe">Antwort anklicken oder selbst schreiben</p>` : ""}
       ${opt.length ? `<div class="rf-opt" role="group" aria-labelledby="rf-${w.id}">${opt.map(o => `<button type="submit" class="btn hell klein" name="option" value="${esc(o)}">${esc(o)}</button>`).join("")}</div>` : ""}
@@ -330,7 +333,10 @@
       if (f.dataset.form === "kommentar") {
         const feld = f.querySelector("input, textarea"), opt = e.submitter && e.submitter.name === "option";
         const text = (opt ? e.submitter.value : feld.value).trim(); if (!text) return;
-        await be.kommentarAnlegen(f.dataset.id, text); feld.value = ""; await zeichnen();
+        const rf = "frage" in f.dataset;
+        if (rf) { beantwortet.set(f.dataset.id, f.dataset.frage); f.hidden = true; }
+        try { await be.kommentarAnlegen(f.dataset.id, text); } catch (err) { if (rf) { beantwortet.delete(f.dataset.id); f.hidden = false; } throw err; }
+        feld.value = ""; await zeichnen();
       }
       if (f.dataset.form === "neu") {
         const text = f.querySelector("#n-text").value.trim();
