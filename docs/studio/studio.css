@@ -134,3 +134,5 @@ button.baum-reg-name:hover{color:var(--akzent);text-decoration:underline}
 .ki-sektion{max-height:260px;overflow:auto;border:1px solid var(--linie);border-radius:6px;padding:8px;font-size:13px}
 .baum-abschnitt.aus .baum-name{opacity:.55;font-style:italic}
 .etikett.aus{background:#b4552d}
+.baum-register.aus>.baum-reg-name{opacity:.55;font-style:italic}
+.baum-register>.seite-auge{order:9;margin-left:auto;float:right}

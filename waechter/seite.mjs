@@ -75,8 +75,11 @@ export function seiteBereinigen(html, marke) {
     }
     let bild = null, datei = null, ziel = "";
     const attr = [];
+    // Links, die der Bau auf ausgeblendete Seiten versteckt: alle drei Merkmale weg, der nächste Bau setzt sie neu
+    const seiteAus = /\sdata-seite-aus\b/i.test(m[3]);
     for (const [roh, wert] of attributeLesen(m[3])) {
       const n = roh.toLowerCase();
+      if (seiteAus && (n === "hidden" || n === "style" || n === "data-seite-aus")) continue;
       if (n === "data-kf-bild" && tag === "img") { bild = wert; continue; }
       if (n === "data-kf-datei" && (tag === "video" || tag === "source")) { datei = wert; continue; }
       const ok = ATTR.has(n) || /^aria-[a-z-]+$/.test(n) || (/^data-[a-z0-9-]+$/.test(n) && !n.startsWith("data-kf-"));
@@ -162,6 +165,13 @@ export function datenUebernehmen(altText, schema, wert) {
   for (const [pfad, w] of Object.entries(wert.werte)) {
     const art = erlaubt.get(pfad);
     if (!art) throw new Error(`Das Feld ${pfad} ist nicht änderbar`);
+    if (art === "seiten") {  // ausgeblendete Seiten: nur Einträge aus „erlaubt“ der kf-daten.json
+      const feld = schema.felder.find(f => !f.liste && f.pfad === pfad), ok = new Set(feld.erlaubt || []);
+      if (!Array.isArray(w) || !w.every(s => ok.has(s))) throw new Error("Diese Seite lässt sich nicht ausblenden");
+      const teile = pfad.split("."), letzter = teile.pop(), ziel = teile.reduce((o, k) => o[k], daten);
+      if (w.length) ziel[letzter] = [...new Set(w)].sort(); else delete ziel[letzter];
+      continue;
+    }
     if (art === "woche") {
       if (!w || typeof w !== "object" || Array.isArray(w)) throw new Error("Ungültige Öffnungszeiten");
       for (const [tag, z] of Object.entries(w)) if (!/^[1-7]$/.test(tag) || !TEXT_OK(z) || z.length > 120) throw new Error("Ungültige Öffnungszeiten");

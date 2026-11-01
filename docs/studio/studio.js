@@ -229,6 +229,8 @@
 
   // ---------- Angaben aus Daten (z. B. Öffnungszeiten in daten.json) ----------
   let schema = null, daten = null, datenBasis = "", datenGeaendert = false;
+  // Ausgeblendete Seiten (kf-daten.json: Feld mit art "seiten" und Liste "erlaubt") – geschaltet per Auge im Reiter „Seiten“
+  let seitenFeld = null, seitenAus = new Set();
   const wurzel = projekt.vorschau_url || projekt.live_url || "";
   const lesen = (o, pfad) => pfad.split(".").reduce((x, k) => x == null ? x : x[k], o);
   async function datenLaden() {
@@ -240,6 +242,8 @@
       schema = await s.json();
       const t = await (await fetch(new URL(schema.datei || "daten.json", wurzel), { cache: "no-store" })).text();
       datenBasis = SP.pruefwert(t); daten = JSON.parse(t);
+      seitenFeld = (schema.felder || []).find(f => f.art === "seiten") || null;
+      if (seitenFeld) seitenAus = new Set(lesen(daten, seitenFeld.pfad) || []);
     } catch (e) {
       schema = null;
       feld.innerHTML = `<p class="hinweis">Dieser Bereich wird automatisch aus den Angaben der Website gebaut. Änderungen daran bitte über „KI-Wunsch“ schicken.</p>`;
@@ -257,6 +261,7 @@
     };
     feld.innerHTML = `<p class="hinweis">Diese Angaben stehen an mehreren Stellen der Website (z. B. Öffnungszeiten, Kontakt). Nach dem Veröffentlichen sind sie überall gleich.</p>
       ${(schema.felder || []).map(f => {
+        if (f.art === "seiten") return "";
         if (!f.liste) return eingabe(f.pfad, f.titel, f.art);
         const liste = lesen(daten, f.liste) || [];
         return `<h3 style="margin:16px 0 8px;font-size:16px">${esc(f.titel || "")}</h3>` + liste.map((x, i) => `<fieldset><legend>${esc(x[f.name] || `Eintrag ${i + 1}`)}</legend>
@@ -270,6 +275,7 @@
       if (i.dataset.tag) (werte[i.dataset.pfad] = werte[i.dataset.pfad] || {})[i.dataset.tag] = i.value.trim();
       else werte[i.dataset.pfad] = i.value.trim();
     });
+    if (seitenFeld) werte[seitenFeld.pfad] = [...seitenAus].sort();
     return werte;
   }
 
@@ -376,6 +382,16 @@
   const baumSpaeter = () => { clearTimeout(baumUhr); baumUhr = setTimeout(baum, 250); };
   const AUGE = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
   const KN = (aktion, cid, text, titel) => `<button type="button" class="baum-knopf" data-b="${aktion}" data-cid="${cid}" title="${esc(titel)}" aria-label="${esc(titel)}">${text}</button>`;
+  // Seiten-Schlüssel wie in daten.json „ausgeblendet“: Pfad relativ zur Vorschau-Adresse, z. B. "kombi/unterwegs.html"
+  const seitenSchluessel = url => { try { const w = new URL(wurzel).pathname, p = new URL(url).pathname; return p.startsWith(w) ? decodeURIComponent(p.slice(w.length)) : ""; } catch (e) { return ""; } };
+  const seiteAusblendbar = r => !r.anker && !!seitenFeld && (seitenFeld.erlaubt || []).includes(seitenSchluessel(r.url));
+  const seiteIstAus = r => seiteAusblendbar(r) && seitenAus.has(seitenSchluessel(r.url));
+  const seiteAusEtikett = r => seiteIstAus(r) ? `<span class="etikett aus" title="ausgeblendet – nach dem Veröffentlichen nicht verlinkt">aus</span>` : "";
+  const seitenAuge = r => {
+    if (!seiteAusblendbar(r)) return "";
+    const aus = seiteIstAus(r), titel = aus ? "Seite einblenden" : "Seite ausblenden (nicht verlinkt, nicht auf der fertigen Website – im Editor weiter bearbeitbar)";
+    return `<button type="button" class="baum-knopf seite-auge" data-b="seite-auge" data-seite="${esc(seitenSchluessel(r.url))}" title="${esc(titel)}" aria-label="${esc(titel)}">${AUGE + (aus ? '<path d="M3 3l18 18"/></svg>' : "</svg>")}</button>`;
+  };
   function baum() {
     const ziel = $("#kf-baum"); if (!ziel) return;
     const gewaehlt = editor.getSelected();
@@ -401,9 +417,9 @@
         const c = editor.getWrapper().find(`#${CSS.escape(r.anker)}`)[0];
         return `<li class="baum-register"><button type="button" class="baum-reg-name" data-b="anker" data-anker="${esc(r.anker)}" ${c ? "" : "disabled"}>${esc(r.titel)}</button><span class="hinweis">Abschnitt auf dieser Seite</span></li>`;
       }
-      if (aktuell(r)) return `<li class="baum-register aktuell"><span class="baum-reg-name">${esc(r.titel)}</span><span class="etikett">wird bearbeitet</span>
+      if (aktuell(r)) return `<li class="baum-register aktuell${seiteIstAus(r) ? " aus" : ""}">${seitenAuge(r)}<span class="baum-reg-name">${esc(r.titel)}</span>${seiteAusEtikett(r)}<span class="etikett">wird bearbeitet</span>
         <ol class="baum-abschnitte">${teile.map(abschnittHtml).join("")}</ol></li>`;
-      return `<li class="baum-register"><button type="button" class="baum-reg-name" data-b="seite" data-url="${esc(r.url)}">${esc(r.titel)}</button><span class="hinweis">${r.anker ? "Abschnitt einer anderen Seite" : "andere Seite – öffnen"}</span></li>`;
+      return `<li class="baum-register${seiteIstAus(r) ? " aus" : ""}">${seitenAuge(r)}<button type="button" class="baum-reg-name" data-b="seite" data-url="${esc(r.url)}">${esc(r.titel)}</button>${seiteAusEtikett(r)}<span class="hinweis">${r.anker ? "Abschnitt einer anderen Seite" : "andere Seite – öffnen"}</span></li>`;
     };
     ziel.innerHTML = `<p class="hinweis">Register der Website und ihre Abschnitte. Anklicken springt zur Stelle, ▸ zeigt die Inhalte. Zum Bearbeiten Inhalt anklicken.</p>
       <ul class="baum">${haupt.map(regHtml).join("")}</ul>
@@ -418,6 +434,10 @@
       if (geaendert()) speichern();
       parent.location.href = t.dataset.url + parent.location.search + "#kf-editor";
       return;
+    }
+    if (art === "seite-auge") {
+      const k = t.dataset.seite; seitenAus.has(k) ? seitenAus.delete(k) : seitenAus.add(k);
+      datenGeaendert = true; status(); entwurfMerken(); return baum();
     }
     if (art === "anker") { const z = editor.getWrapper().find(`#${CSS.escape(t.dataset.anker)}`)[0]; if (z) zeigen(z); return; }
     if (!c) return;
@@ -538,6 +558,9 @@
   // ---------- Start ----------
   editor.on("load", async () => {
     einrichten();
+    // Links auf ausgeblendete Seiten versteckt der Bau (hidden, style, data-seite-aus) – hier weg, sonst schriebe GrapesJS den Stil
+    // in eine CSS-Regel, die der Bau nicht mehr entfernt. Der nächste Bau setzt die Merkmale neu.
+    editor.getWrapper().find("[data-seite-aus]").forEach(c => { c.removeAttributes(["hidden", "style", "data-seite-aus"]); const st = { ...c.getStyle() }; delete st.display; c.setStyle(st); });
     await datenLaden();
     neuigkeitenZeigen();
     let e = null;
@@ -547,6 +570,7 @@
     const weiter = e && (e.basis === basis || confirm(`Ihr habt am ${new Date(e.zeit).toLocaleString("de-DE")} einen Stand gespeichert. Die Seite wurde seitdem geändert (z. B. durch einen KI-Wunsch).\n\nGespeicherten Stand trotzdem laden? Beim Veröffentlichen würde er die neueren Änderungen ersetzen.`));
     if (weiter) {
       if (e.projekt) { editor.loadProjectData(e.projekt); einrichten(); seiteGeaendert = true; }
+      if (e.daten && seitenFeld && Array.isArray(e.daten[seitenFeld.pfad])) { seitenAus = new Set(e.daten[seitenFeld.pfad]); datenGeaendert = true; }
       if (e.daten) for (const [pfad, w] of Object.entries(e.daten)) $('[data-feld="daten"]').querySelectorAll(`input[data-pfad="${CSS.escape(pfad)}"]`).forEach(i => { i.value = i.dataset.tag ? (w[i.dataset.tag] || "") : w; datenGeaendert = true; });
       for (const [k, liste] of Object.entries(e.neuigkeiten || {})) if (nachrichten[k]) { nachrichten[k].liste = liste; nachrichten[k].geaendert = true; }
       if (e.zusatz) Object.assign(ctx.zusatz, e.zusatz);

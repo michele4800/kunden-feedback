@@ -147,6 +147,17 @@ try {
     assert.throws(() => datenUebernehmen(alt, schema, { basis: "alt", werte: {} }), /inzwischen geändert/);
   });
 
+  await test("Daten: ausgeblendete Seiten nur aus „erlaubt“, leere Liste entfernt das Feld; Bau-Merkmale an Links fallen zusammen weg", async () => {
+    const schema = { felder: [{ pfad: "ausgeblendet", titel: "Ausgeblendete Seiten", art: "seiten", erlaubt: ["kombi/unterwegs.html", "kombi/geschichte.html"] }] };
+    const alt = JSON.stringify({ betrieb: {} }), b = pruefwert(alt);
+    assert.deepEqual(JSON.parse(datenUebernehmen(alt, schema, { basis: b, werte: { ausgeblendet: ["kombi/unterwegs.html", "kombi/unterwegs.html"] } })).ausgeblendet, ["kombi/unterwegs.html"]);
+    const mit = JSON.stringify({ ausgeblendet: ["kombi/unterwegs.html"] });
+    assert.equal("ausgeblendet" in JSON.parse(datenUebernehmen(mit, schema, { basis: pruefwert(mit), werte: { ausgeblendet: [] } })), false);
+    assert.throws(() => datenUebernehmen(alt, schema, { basis: b, werte: { ausgeblendet: ["kombi/index.html"] } }), /nicht ausblenden/);
+    assert.throws(() => datenUebernehmen(alt, schema, { basis: b, werte: { ausgeblendet: "kombi/unterwegs.html" } }), /nicht ausblenden/);
+    assert.equal(seiteBereinigen(`<a hidden style="display:none!important" data-seite-aus href="unterwegs.html" class="k">U</a>`, "m").html, `<a href="unterwegs.html" class="k">U</a>`);
+  });
+
   await test("Seite zur Adresse: nur HTML-Dateien im Git unterhalb der Vorschau-Adresse", async () => {
     const d = ["index.html", "kombi/index.html", "kombi/unterwegs.html"], B = ["https://x.github.io/hof/"];
     assert.equal(dateiZurAdresse("https://x.github.io/hof/kombi/", B, d), "kombi/index.html");
