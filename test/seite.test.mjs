@@ -63,6 +63,12 @@ try {
     assert.equal(seiteBereinigen("1 &lt; 2 &amp; <b>fett", "m").html, "1 &lt; 2 &amp; <b>fett</b>");
   });
 
+  await test("Bereinigen: im Editor ausgeblendete Abschnitte fliegen samt Inhalt raus, die leere Marke bleibt", async () => {
+    const r = seiteBereinigen(`<section><p>A</p></section><section data-kf-aus="x1"><section><p>geheim</p></section><img src="g.webp" alt="g" data-kf-bild="p/g.jpg"><p>noch geheim</p></section><div hidden data-ausgeblendet="x1"></div><p>B</p>`, "m");
+    assert.equal(r.html, `<section><p>A</p></section><div hidden="" data-ausgeblendet="x1"></div><p>B</p>`);
+    assert.equal(r.bilder.length, 0);
+  });
+
   await test("Formulare und Videos: ohne Ziel, nur einfache Felder, Video aus der Bibliothek wird Platzhalter", async () => {
     const r = seiteBereinigen(`<form data-komp="formular" action="https://boese.de" method="post" onsubmit="x()"><label for="a">A</label>
 <input id="a" name="mail" type="email" required maxlength="80"><input name="pw" type="password"><input name="h" type="hidden" value="x">

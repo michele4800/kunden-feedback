@@ -55,15 +55,18 @@ function attributeLesen(roh) {
 // html: Body-Inhalt aus dem Editor → { html (mit Platzhaltern), bilder: [{ marke, pfad, attr }] }
 export function seiteBereinigen(html, marke) {
   const raus = [], stapel = [], bilder = [];
-  let ueberspringen = null;
+  let ueberspringen = null, aus = null;
   for (const teil of String(html || "").split(/(<[^>]*>)/)) {
     if (!teil) continue;
     const m = teil[0] === "<" ? /^<\s*(\/?)\s*([a-zA-Z][a-zA-Z0-9-]*)([\s\S]*?)(\/?)\s*>$/.exec(teil) : null;
     if (ueberspringen) { if (m && m[1] && m[2].toLowerCase() === ueberspringen) ueberspringen = null; continue; }
+    // Im Editor ausgeblendet: samt Inhalt weg (der Editor trennt das schon ab – hier nur zur Sicherheit). Verschachtelte gleiche Tags mitzählen.
+    if (aus) { if (m && m[2].toLowerCase() === aus.tag && !m[4]) { if (!m[1]) aus.tiefe++; else if (!aus.tiefe--) aus = null; } continue; }
     if (teil[0] !== "<") { raus.push(textEsc(teil)); continue; }
     if (!m) { if (!/^<\s*[!?/]/.test(teil)) raus.push(textEsc(teil)); continue; }  // Kommentare fliegen raus
     const zu = !!m[1], tag = m[2].toLowerCase();
     if (!zu && WEG_MIT_INHALT.test(tag)) { if (!m[4] && !LEER.has(tag)) ueberspringen = tag; continue; }
+    if (!zu && /\sdata-kf-aus\s*=/i.test(m[3])) { if (!LEER.has(tag) && !m[4]) aus = { tag, tiefe: 0 }; continue; }
     if (!TAGS.has(tag)) continue;
     if (zu) {
       const i = stapel.lastIndexOf(tag);

@@ -92,7 +92,10 @@
     components: html, style: kfCss, storageManager: false, protectedCss: "",
     i18n: { locale: "de", detectLocale: false, messages: { de: window.KF_GJS_DE || {} } },
     canvas: { styles: fremdeCss, frameContent: `<!DOCTYPE html><html lang="de"><head><base href="${esc(SEITE)}"></head><body></body></html>`,
-      frameStyle: kopfStile + "\nkf-sperre{display:contents}" },
+      frameStyle: kopfStile + "\nkf-sperre{display:contents}[data-ausgeblendet]{display:none}"
+        // Ausgeblendetes bleibt im Editor sichtbar, aber abgeblendet und markiert
+        + "[data-kf-aus]{outline:2px dashed #b4552d;outline-offset:-2px;position:relative}[data-kf-aus]>*{opacity:.45}"
+        + "[data-kf-aus]::before{content:'ausgeblendet – erscheint nicht auf der Website';position:absolute;top:8px;left:8px;z-index:5;background:#b4552d;color:#fff;font:600 12px/1.6 system-ui,sans-serif;padding:2px 10px;border-radius:999px}" },
     deviceManager: { devices: [
       { id: "desktop", name: "Desktop", width: "" },
       { id: "tablet", name: "Tablet", width: "768px", widthMedia: "992px" },
@@ -371,6 +374,7 @@
   const offeneAbschnitte = new Set();
   let baumUhr = null;
   const baumSpaeter = () => { clearTimeout(baumUhr); baumUhr = setTimeout(baum, 250); };
+  const AUGE = '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>';
   const KN = (aktion, cid, text, titel) => `<button type="button" class="baum-knopf" data-b="${aktion}" data-cid="${cid}" title="${esc(titel)}" aria-label="${esc(titel)}">${text}</button>`;
   function baum() {
     const ziel = $("#kf-baum"); if (!ziel) return;
@@ -379,11 +383,12 @@
     const abschnittHtml = (c, i) => {
       const cid = c.cid, offen = offeneAbschnitte.has(cid), kinder = offen ? inhalte(c) : [];
       const aktiv = gewaehlt && (gewaehlt === c || gewaehlt.parents().includes(c));
-      return `<li class="baum-abschnitt${aktiv ? " aktiv" : ""}">
+      const aus = !!c.getAttributes()["data-kf-aus"];
+      return `<li class="baum-abschnitt${aktiv ? " aktiv" : ""}${aus ? " aus" : ""}">
         <div class="baum-zeile">
           <button type="button" class="baum-auf" data-b="auf" data-cid="${cid}" aria-expanded="${offen}" ${c.get("kfBereich") ? "disabled" : ""} title="Inhalte zeigen">${c.get("kfBereich") ? "•" : offen ? "▾" : "▸"}</button>
-          <button type="button" class="baum-name" data-b="waehlen" data-cid="${cid}">${esc(nameVon(c))}</button>
-          <span class="baum-knoepfe">${KN("hoch", cid, "↑", "Nach oben")}${KN("runter", cid, "↓", "Nach unten")}${c.get("kfBereich") ? "" : KN("kopie", cid, "⧉", "Kopieren")}${KN("weg", cid, "✕", "Löschen")}</span>
+          <button type="button" class="baum-name" data-b="waehlen" data-cid="${cid}">${esc(nameVon(c))}</button>${aus ? `<span class="etikett aus" title="ausgeblendet – erscheint nicht auf der Website">aus</span>` : ""}
+          <span class="baum-knoepfe">${c.get("kfBereich") ? "" : KN("auge", cid, AUGE + (aus ? '<path d="M3 3l18 18"/></svg>' : "</svg>"), aus ? "Einblenden" : "Ausblenden (bleibt im Editor, erscheint nicht auf der Website)")}${KN("hoch", cid, "↑", "Nach oben")}${KN("runter", cid, "↓", "Nach unten")}${c.get("kfBereich") ? "" : KN("kopie", cid, "⧉", "Kopieren")}${KN("weg", cid, "✕", "Löschen")}</span>
         </div>
         ${offen ? `<ul class="baum-inhalte">${kinder.map(k => `<li><button type="button" class="baum-inhalt${gewaehlt === k ? " aktiv" : ""}" data-b="inhalt" data-cid="${k.cid}">
           <span class="baum-art">${ART[k.get("tagName")] || "Element"}</span> ${esc(kurzText(k) || "(leer)")}</button></li>`).join("") || `<li class="hinweis">Keine Inhalte</li>`}</ul>` : ""}
@@ -428,6 +433,7 @@
     const eltern = c.parent(), i = eltern.components().indexOf(c);
     if (art === "hoch" && i > 0) c.move(eltern, { at: i - 1 });
     if (art === "runter" && i < eltern.components().length - 1) c.move(eltern, { at: i + 2 });
+    if (art === "auge") c.getAttributes()["data-kf-aus"] ? c.removeAttributes("data-kf-aus") : c.addAttributes({ "data-kf-aus": Math.random().toString(36).slice(2, 10) });
     if (art === "kopie") { const k = c.clone(); eltern.components().add(k, { at: i + 1 }); }
     if (art === "weg" && confirm(`„${nameVon(c)}“ von dieser Seite löschen?`)) c.remove();
     baum();
@@ -445,6 +451,35 @@
   };
   const kurz = s => s.toLowerCase().replace(/\.html?$/, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "start";
 
+  // Ausgeblendete Abschnitte gehen nicht in die Seite: an ihrer Stelle steht nur eine leere Marke, der Inhalt bleibt in der
+  // Inhalte-Zeile (nur für Mitglieder lesbar) und kommt beim nächsten Öffnen über ausgeblendeteHolen() zurück in den Editor.
+  function ausgeblendetTrennen(h) {
+    if (!/data-kf-aus=/.test(h)) return { h, aus: [] };
+    const d = new DOMParser().parseFromString(`<body>${h}</body>`, "text/html"), aus = [];
+    for (const el of d.body.querySelectorAll("[data-kf-aus]")) {
+      if (!d.body.contains(el)) continue;  // steckt in einem schon ausgeblendeten Abschnitt
+      const id = el.getAttribute("data-kf-aus"), m = d.createElement("div");
+      aus.push({ id, html: el.outerHTML });
+      m.hidden = true; m.setAttribute("data-ausgeblendet", id); el.replaceWith(m);
+    }
+    return { h: d.body.innerHTML, aus };
+  }
+  async function ausgeblendeteHolen() {
+    const marken = editor.getWrapper().find("[data-ausgeblendet]"); if (!marken.length) return;
+    let teile = [];
+    try { teile = (await be.inhalte(projekt.id)).filter(z => z.seite_url === SEITE && z.status === "live" && Array.isArray(z.wert?.ausgeblendet)).flatMap(z => z.wert.ausgeblendet); } catch (e) { return; }
+    for (const m of marken) {
+      const teil = teile.find(a => a.id === m.getAttributes()["data-ausgeblendet"]); if (!teil) continue;
+      const d = new DOMParser().parseFromString(`<body>${teil.html}</body>`, "text/html");
+      // Fotos/Videos aus der Medienbibliothek: Adresse neu holen (die alte galt nur eine Stunde)
+      for (const el of d.querySelectorAll("[data-kf-bild], [data-kf-datei]")) {
+        const p = el.getAttribute("data-kf-bild") || el.getAttribute("data-kf-datei");
+        try { const u = await be.dateiUrl(p); if (u) { el.setAttribute("src", u); bildPfade.set(u, p); } } catch (e) {}
+      }
+      const eltern = m.parent(); eltern.components().add(d.body.innerHTML, { at: eltern.components().indexOf(m) }); m.remove();
+    }
+  }
+
   async function veroeffentlichen() {
     if (!geaendert()) return meldung("Keine Änderungen", "Es gibt nichts zu veröffentlichen.", [["OK", () => meldung("")]]);
     const zeilen = [];
@@ -458,10 +493,10 @@
       for (const c of editor.getWrapper().find("video")) { const p = bildPfade.get(c.getAttributes().src); if (p) c.addAttributes({ "data-kf-datei": p }); }
       const ohneVideo = editor.getWrapper().find("video[data-hintergrund]").filter(c => !c.getAttributes().src);
       if (ohneVideo.length) { editor.select(ohneVideo[0]); return meldung("Video fehlt", "Beim Video-Hintergrund ist noch kein Video gewählt. Bitte im Reiter „Gestalten“ auf „Video wählen …“ klicken – oder den Abschnitt löschen.", [["OK", () => meldung("")]]); }
-      const h = editor.getHtml().replace(/^\s*<body\b[^>]*>/i, "").replace(/<\/body>\s*$/i, "");
+      const { h, aus } = ausgeblendetTrennen(editor.getHtml().replace(/^\s*<body\b[^>]*>/i, "").replace(/<\/body>\s*$/i, ""));
       const css = editor.getCss({ avoidProtected: true }) || "";
-      if (h.length + css.length > 480000) return meldung("Seite zu groß", "Die Seite ist zu umfangreich zum Speichern. Bitte große Bereiche entfernen.", [["OK", () => meldung("")]]);
-      zeilen.push({ schluessel: "seite-" + kurz(new URL(SEITE).pathname.replace(/^\//, "") || "index"), wert: { art: "seite", html: h, css, basis, ...(ctx.zusatz.seo ? { seo: ctx.zusatz.seo } : {}) } });
+      if (h.length + css.length + JSON.stringify(aus).length > 480000) return meldung("Seite zu groß", "Die Seite ist zu umfangreich zum Speichern. Bitte große Bereiche entfernen.", [["OK", () => meldung("")]]);
+      zeilen.push({ schluessel: "seite-" + kurz(new URL(SEITE).pathname.replace(/^\//, "") || "index"), wert: { art: "seite", html: h, css, basis, ...(aus.length ? { ausgeblendet: aus } : {}),...(ctx.zusatz.seo ? { seo: ctx.zusatz.seo } : {}) } });
     }
     if (datenGeaendert && schema) zeilen.push({ schluessel: "daten", wert: { art: "daten", werte: datenWerte(), basis: datenBasis } });
     for (const [schluessel, n] of Object.entries(nachrichten)) if (n.geaendert) zeilen.push({ schluessel, wert: { eintraege: n.liste } });
@@ -518,6 +553,7 @@
       neuigkeitenZeigen();
       gespeichertUm = e.zeit;
     } else if (e) { try { localStorage.removeItem(ENTWURF); } catch (err) {} }
+    if (!weiter || !e.projekt) await ausgeblendeteHolen();
     um.clear();
     setTimeout(() => { bereit = true; ungespeichert = false; if (weiter) status(`Gespeicherter Stand vom ${uhr(e.zeit)} geladen · noch nicht veröffentlicht`); }, 400);  // Nachzügler-„update“ vom Laden nicht zählen
     for (const t of TEILE) try { t.nachLaden && t.nachLaden(); } catch (err) { console.error(t.id, err); }
